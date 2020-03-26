@@ -86,6 +86,7 @@ where
         InitError = (),
     > {
         pipeline_factory(|io: TcpStream| {
+            let _ = io.set_linger(None);
             let peer_addr = io.peer_addr().ok();
             ok((io, peer_addr))
         })

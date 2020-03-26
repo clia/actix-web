@@ -85,6 +85,7 @@ where
     > {
         pipeline_factory(fn_factory(|| async {
             Ok::<_, S::InitError>(fn_service(|io: TcpStream| {
+                let _ = io.set_linger(None);
                 let peer_addr = io.peer_addr().ok();
                 ok::<_, DispatchError>((io, peer_addr))
             }))
