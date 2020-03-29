@@ -17,10 +17,10 @@ name = "actix_cors"
 path = "src/lib.rs"
 
 [dependencies]
-actix-web = { git = "https://github.com/clia/actix-web.git" }
-actix-service = { git = "https://github.com/clia/actix-net.git" }
+actix-web = "2.0.0-rc"
+actix-service = "1.0.1"
 derive_more = "0.99.2"
 futures = "0.3.1"
 
 [dev-dependencies]
-actix-rt = { git = "https://github.com/clia/actix-net.git" }
+actix-rt = "1.0.0"

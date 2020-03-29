@@ -17,6 +17,6 @@ syn = { version = "^1", features = ["full", "parsing"] }
 proc-macro2 = "^1"
 
 [dev-dependencies]
-actix-rt = { git = "https://github.com/clia/actix-net.git" }
-actix-web = { git = "https://github.com/clia/actix-web.git" }
+actix-rt = "1.0.0"
+actix-web = "3.0.0-alpha.1"
 futures = "0.3.1"

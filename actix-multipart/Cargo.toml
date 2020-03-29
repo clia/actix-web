@@ -16,9 +16,9 @@ name = "actix_multipart"
 path = "src/lib.rs"
 
 [dependencies]
-actix-web = { git = "https://github.com/clia/actix-web.git", default-features = false }
-actix-service = { git = "https://github.com/clia/actix-net.git" }
-actix-utils = { git = "https://github.com/clia/actix-net.git" }
+actix-web = { version = "3.0.0-alpha.1", default-features = false }
+actix-service = "1.0.1"
+actix-utils = "1.0.3"
 bytes = "0.5.3"
 derive_more = "0.99.2"
 httparse = "1.3"
@@ -28,5 +28,5 @@ mime = "0.3"
 twoway = "0.2"
 
 [dev-dependencies]
-actix-rt = { git = "https://github.com/clia/actix-net.git" }
-actix-http = { git = "https://github.com/clia/actix-web.git" }
+actix-rt = "1.0.0"
+actix-http = "2.0.0-alpha.2"
