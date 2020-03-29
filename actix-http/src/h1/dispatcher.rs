@@ -311,7 +311,7 @@ where
         let len = self.write_buf.len();
         let mut written = 0;
         #[project]
-        let InnerDispatcher { io, write_buf, .. } = self.project();
+        let InnerDispatcher { io, write_buf, flags, .. } = self.project();
         let mut io = Pin::new(io.as_mut().unwrap());
         while written < len {
             match io.as_mut().poll_write(cx, &write_buf[written..]) {
@@ -330,7 +330,10 @@ where
                     }
                     return Ok(true);
                 }
-                Poll::Ready(Err(err)) => return Err(DispatchError::Io(err)),
+                Poll::Ready(Err(err)) => {
+                    flags.insert(Flags::WRITE_DISCONNECT);
+                    return Err(DispatchError::Io(err));
+                }
             }
         }
         if written == write_buf.len() {
