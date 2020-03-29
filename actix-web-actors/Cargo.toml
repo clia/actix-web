@@ -17,13 +17,13 @@ path = "src/lib.rs"
 
 [dependencies]
 actix = "0.10.0-alpha.1"
-actix-web = "3.0.0-alpha.1"
-actix-http = "2.0.0-alpha.2"
-actix-codec = "0.2.0"
+actix-web = { git = "https://github.com/clia/actix-web.git" }
+actix-http = { git = "https://github.com/clia/actix-web.git" }
+actix-codec = { git = "https://github.com/clia/actix-net.git" }
 bytes = "0.5.2"
 futures = "0.3.1"
 pin-project = "0.4.6"
 
 [dev-dependencies]
-actix-rt = "1.0.0"
+actix-rt = { git = "https://github.com/clia/actix-net.git" }
 env_logger = "0.6"

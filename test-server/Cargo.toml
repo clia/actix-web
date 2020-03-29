@@ -30,14 +30,14 @@ default = []
 openssl = ["open-ssl", "awc/openssl"]
 
 [dependencies]
-actix-service = "1.0.1"
-actix-codec = "0.2.0"
-actix-connect = "2.0.0-alpha.2"
-actix-utils = "1.0.3"
-actix-rt = "1.0.0"
-actix-server = "1.0.0"
-actix-testing = "1.0.0"
-awc = "2.0.0-alpha.1"
+actix-service = { git = "https://github.com/clia/actix-net.git" }
+actix-codec = { git = "https://github.com/clia/actix-net.git" }
+actix-connect = { git = "https://github.com/clia/actix-net.git" }
+actix-utils = { git = "https://github.com/clia/actix-net.git" }
+actix-rt = { git = "https://github.com/clia/actix-net.git" }
+actix-server = { git = "https://github.com/clia/actix-net.git" }
+actix-testing = { git = "https://github.com/clia/actix-net.git" }
+awc = { git = "https://github.com/clia/actix-web.git" }
 
 base64 = "0.11"
 bytes = "0.5.3"
@@ -55,5 +55,5 @@ time = { version = "0.2.7", default-features = false, features = ["std"] }
 open-ssl = { version="0.10", package="openssl", optional = true }
 
 [dev-dependencies]
-actix-web = "3.0.0-alpha.1"
-actix-http = "2.0.0-alpha.2"
+actix-web = { git = "https://github.com/clia/actix-web.git" }
+actix-http = { git = "https://github.com/clia/actix-web.git" }

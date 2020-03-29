@@ -82,9 +82,9 @@ actix-macros = { git = "https://github.com/clia/actix-net.git" }
 actix-threadpool = { git = "https://github.com/clia/actix-net.git" }
 actix-tls = { git = "https://github.com/clia/actix-net.git" }
 
-actix-web-codegen = "0.2.0"
-actix-http = "2.0.0-alpha.2"
-awc = { version = "2.0.0-alpha.1", default-features = false }
+actix-web-codegen = { git = "https://github.com/clia/actix-web.git" }
+actix-http = { git = "https://github.com/clia/actix-web.git" }
+awc = { git = "https://github.com/clia/actix-web.git", default-features = false }
 
 bytes = "0.5.3"
 derive_more = "0.99.2"
