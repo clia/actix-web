@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 use actix_http::http::{PathAndQuery, Uri};
 use actix_service::{Service, Transform};
 use bytes::Bytes;
-use futures::future::{ok, Ready};
+use futures_util::future::{ok, Ready};
 use regex::Regex;
 
 use crate::service::{ServiceRequest, ServiceResponse};
@@ -16,6 +16,7 @@ use crate::Error;
 /// Performs following:
 ///
 /// - Merges multiple slashes into one.
+/// - Appends a trailing slash if one is not present.
 ///
 /// ```rust
 /// use actix_web::{web, http, middleware, App, HttpResponse};
@@ -74,11 +75,27 @@ where
 
     fn call(&mut self, mut req: ServiceRequest) -> Self::Future {
         let head = req.head_mut();
-        let path = head.uri.path();
-        let original_len = path.len();
-        let path = self.merge_slash.replace_all(path, "/");
 
-        if original_len != path.len() {
+        let original_path = head.uri.path();
+
+        // always add trailing slash, might be an extra one
+        let path = original_path.to_string() + "/";
+
+        // normalize multiple /'s to one /
+        let path = self.merge_slash.replace_all(&path, "/");
+
+        // Check whether the path has been changed
+        //
+        // This check was previously implemented as string length comparison
+        //
+        // That approach fails when a trailing slash is added,
+        // and a duplicate slash is removed,
+        // since the length of the strings remains the same
+        // 
+        // For example, the path "/v1//s" will be normalized to "/v1/s/"
+        // Both of the paths have the same length, 
+        // so the change can not be deduced from the length comparison
+        if path != original_path {
             let mut parts = head.uri.clone().into_parts();
             let pq = parts.path_and_query.as_ref().unwrap();
 
@@ -119,6 +136,18 @@ mod tests {
         let req = TestRequest::with_uri("/v1//something////").to_request();
         let res = call_service(&mut app, req).await;
         assert!(res.status().is_success());
+
+        let req2 = TestRequest::with_uri("//v1/something").to_request();
+        let res2 = call_service(&mut app, req2).await;
+        assert!(res2.status().is_success());
+
+        let req3 = TestRequest::with_uri("//v1//////something").to_request();
+        let res3 = call_service(&mut app, req3).await;
+        assert!(res3.status().is_success());
+
+        let req4 = TestRequest::with_uri("/v1//something").to_request();
+        let res4 = call_service(&mut app, req4).await;
+        assert!(res4.status().is_success());
     }
 
     #[actix_rt::test]
@@ -136,6 +165,18 @@ mod tests {
         let req = TestRequest::with_uri("/v1//something////").to_srv_request();
         let res = normalize.call(req).await.unwrap();
         assert!(res.status().is_success());
+
+        let req2 = TestRequest::with_uri("///v1/something").to_srv_request();
+        let res2 = normalize.call(req2).await.unwrap();
+        assert!(res2.status().is_success());
+
+        let req3 = TestRequest::with_uri("//v1///something").to_srv_request();
+        let res3 = normalize.call(req3).await.unwrap();
+        assert!(res3.status().is_success());
+
+        let req4 = TestRequest::with_uri("/v1//something").to_srv_request();
+        let res4 = normalize.call(req4).await.unwrap();
+        assert!(res4.status().is_success());
     }
 
     #[actix_rt::test]
@@ -144,6 +185,25 @@ mod tests {
 
         let srv = |req: ServiceRequest| {
             assert_eq!(URI, req.path());
+            ok(req.into_response(HttpResponse::Ok().finish()))
+        };
+
+        let mut normalize = NormalizePath
+            .new_transform(srv.into_service())
+            .await
+            .unwrap();
+
+        let req = TestRequest::with_uri(URI).to_srv_request();
+        let res = normalize.call(req).await.unwrap();
+        assert!(res.status().is_success());
+    }
+
+    #[actix_rt::test]
+    async fn should_normalize_notrail() {
+        const URI: &str = "/v1/something";
+
+        let srv = |req: ServiceRequest| {
+            assert_eq!(URI.to_string() + "/", req.path());
             ok(req.into_response(HttpResponse::Ok().finish()))
         };
 

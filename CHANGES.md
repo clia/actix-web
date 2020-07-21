@@ -1,18 +1,71 @@
 # Changes
 
-## [Unreleased]
+## Unreleased - 2020-xx-xx
+### Changed
+* `PayloadConfig` is now also considered in `Bytes` and `String` extractors when set
+  using `App::data`. [#1610]
+* `web::Path` now has a public representation: `web::Path(pub T)` that enables
+  destructuring. [#1594]
+* MSRV is now 1.42.0.
+
+### Fixed
+* Memory leak of app data in pooled requests. [#1609]
+
+[#1594]: https://github.com/actix/actix-web/pull/1594
+[#1609]: https://github.com/actix/actix-web/pull/1609
+[#1610]: https://github.com/actix/actix-web/pull/1610
+
+
+## 3.0.0-beta.1 - 2020-07-13
+### Added
+* Re-export `actix_rt::main` as `actix_web::main`.
+* `HttpRequest::match_pattern` and `ServiceRequest::match_pattern` for extracting the matched
+  resource pattern.
+* `HttpRequest::match_name` and `ServiceRequest::match_name` for extracting matched resource name.
+
+### Changed
+* Fix actix_http::h1::dispatcher so it returns when HW_BUFFER_SIZE is reached. Should reduce peak memory consumption during large uploads. [#1550]
+* Migrate cookie handling to `cookie` crate. Actix-web no longer requires `ring` dependency.
+* MSRV is now 1.41.1
+
+### Fixed
+* `NormalizePath` improved consistency when path needs slashes added _and_ removed.
+
+
+## 3.0.0-alpha.3 - 2020-05-21
+### Added
+* Add option to create `Data<T>` from `Arc<T>` [#1509]
+
+### Changed
+* Resources and Scopes can now access non-overridden data types set on App (or containing scopes) when setting their own data. [#1486]
+* Fix audit issue logging by default peer address [#1485]
+* Bump minimum supported Rust version to 1.40
+* Replace deprecated `net2` crate with `socket2`
+
+[#1485]: https://github.com/actix/actix-web/pull/1485
+[#1509]: https://github.com/actix/actix-web/pull/1509
+
+## [3.0.0-alpha.2] - 2020-05-08
 
 ### Changed
 
+* `{Resource,Scope}::default_service(f)` handlers now support app data extraction. [#1452]
 * Implement `std::error::Error` for our custom errors [#1422]
+* NormalizePath middleware now appends trailing / so that routes of form /example/ respond to /example requests. [#1433]
+* Remove the `failure` feature and support.
 
 [#1422]: https://github.com/actix/actix-web/pull/1422
+[#1433]: https://github.com/actix/actix-web/pull/1433
+[#1452]: https://github.com/actix/actix-web/pull/1452
+[#1486]: https://github.com/actix/actix-web/pull/1486
+
 
 ## [3.0.0-alpha.1] - 2020-03-11
 
 ### Added
 
 * Add helper function for creating routes with `TRACE` method guard `web::trace()`
+* Add convenience functions `test::read_body_json()` and `test::TestRequest::send_request()` for testing.
 
 ### Changed
 

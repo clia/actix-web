@@ -1,10 +1,16 @@
 # Changes
 
-## [Unreleased]
+## [2.0.0-beta.1] - 2020-07-14
+### Changed
+* Update `actix-http` dependency to 2.0.0-beta.1
+
+## [2.0.0-alpha.2] - 2020-05-21
 
 ### Changed
 
 * Implement `std::error::Error` for our custom errors [#1422]
+* Bump minimum supported Rust version to 1.40
+* Update `base64` dependency to 0.12
 
 [#1422]: https://github.com/actix/actix-web/pull/1422
 

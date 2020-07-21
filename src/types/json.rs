@@ -7,8 +7,8 @@ use std::task::{Context, Poll};
 use std::{fmt, ops};
 
 use bytes::BytesMut;
-use futures::future::{err, ok, FutureExt, LocalBoxFuture, Ready};
-use futures::StreamExt;
+use futures_util::future::{err, ok, FutureExt, LocalBoxFuture, Ready};
+use futures_util::StreamExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -319,6 +319,7 @@ where
     U: DeserializeOwned + 'static,
 {
     /// Create `JsonBody` for request.
+    #[allow(clippy::borrow_interior_mutable_const)]
     pub fn new(
         req: &HttpRequest,
         payload: &mut Payload,
@@ -432,14 +433,8 @@ mod tests {
 
     fn json_eq(err: JsonPayloadError, other: JsonPayloadError) -> bool {
         match err {
-            JsonPayloadError::Overflow => match other {
-                JsonPayloadError::Overflow => true,
-                _ => false,
-            },
-            JsonPayloadError::ContentType => match other {
-                JsonPayloadError::ContentType => true,
-                _ => false,
-            },
+            JsonPayloadError::Overflow => matches!(other, JsonPayloadError::Overflow),
+            JsonPayloadError::ContentType => matches!(other, JsonPayloadError::ContentType),
             _ => false,
         }
     }

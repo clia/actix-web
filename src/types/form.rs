@@ -9,8 +9,8 @@ use std::{fmt, ops};
 use actix_http::{Error, HttpMessage, Payload, Response};
 use bytes::BytesMut;
 use encoding_rs::{Encoding, UTF_8};
-use futures::future::{err, ok, FutureExt, LocalBoxFuture, Ready};
-use futures::StreamExt;
+use futures_util::future::{err, ok, FutureExt, LocalBoxFuture, Ready};
+use futures_util::StreamExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -252,6 +252,7 @@ pub struct UrlEncoded<U> {
     fut: Option<LocalBoxFuture<'static, Result<U, UrlencodedError>>>,
 }
 
+#[allow(clippy::borrow_interior_mutable_const)]
 impl<U> UrlEncoded<U> {
     /// Create a new future to URL encode a request
     pub fn new(req: &HttpRequest, payload: &mut Payload) -> UrlEncoded<U> {
@@ -406,18 +407,9 @@ mod tests {
 
     fn eq(err: UrlencodedError, other: UrlencodedError) -> bool {
         match err {
-            UrlencodedError::Overflow { .. } => match other {
-                UrlencodedError::Overflow { .. } => true,
-                _ => false,
-            },
-            UrlencodedError::UnknownLength => match other {
-                UrlencodedError::UnknownLength => true,
-                _ => false,
-            },
-            UrlencodedError::ContentType => match other {
-                UrlencodedError::ContentType => true,
-                _ => false,
-            },
+            UrlencodedError::Overflow { .. } => matches!(other, UrlencodedError::Overflow { .. }),
+            UrlencodedError::UnknownLength => matches!(other, UrlencodedError::UnknownLength),
+            UrlencodedError::ContentType => matches!(other, UrlencodedError::ContentType),
             _ => false,
         }
     }

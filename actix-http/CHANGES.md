@@ -1,12 +1,58 @@
 # Changes
 
-## [Unreleased]
+## [Unreleased] - xxx
+### Fixed
+* Potential UB in h1 decoder using uninitialized memory. [#1614]
+
+[#1614]: https://github.com/actix/actix-web/pull/1614
+
+
+## [2.0.0-beta.1] - 2020-07-11
+
+### Changed
+
+* Migrate cookie handling to `cookie` crate. [#1558]
+* Update `sha-1` to 0.9. [#1586]
+* Fix leak in client pool. [#1580]
+* MSRV is now 1.41.1.
+
+[#1558]: https://github.com/actix/actix-web/pull/1558
+[#1586]: https://github.com/actix/actix-web/pull/1586
+[#1580]: https://github.com/actix/actix-web/pull/1580
+
+## [2.0.0-alpha.4] - 2020-05-21
+
+### Changed
+
+* Bump minimum supported Rust version to 1.40
+* content_length function is removed, and you can set Content-Length by calling no_chunking function [#1439]
+* `BodySize::Sized64` variant has been removed. `BodySize::Sized` now receives a
+  `u64` instead of a `usize`.
+* Update `base64` dependency to 0.12
+
+### Fixed
+
+* Support parsing of `SameSite=None` [#1503]
+
+[#1439]: https://github.com/actix/actix-web/pull/1439
+[#1503]: https://github.com/actix/actix-web/pull/1503
+
+## [2.0.0-alpha.3] - 2020-05-08
+
+### Fixed
+
+* Correct spelling of ConnectError::Unresolved [#1487]
+* Fix a mistake in the encoding of websocket continuation messages wherein
+  Item::FirstText and Item::FirstBinary are each encoded as the other.
 
 ### Changed
 
 * Implement `std::error::Error` for our custom errors [#1422]
+* Remove `failure` support for `ResponseError` since that crate
+  will be deprecated in the near future.
 
 [#1422]: https://github.com/actix/actix-web/pull/1422
+[#1487]: https://github.com/actix/actix-web/pull/1487
 
 ## [2.0.0-alpha.2] - 2020-03-07
 

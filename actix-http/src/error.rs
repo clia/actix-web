@@ -18,7 +18,7 @@ use serde::de::value::Error as DeError;
 use serde_json::error::Error as JsonError;
 use serde_urlencoded::ser::Error as FormError;
 
-// re-export for convinience
+// re-export for convenience
 use crate::body::Body;
 pub use crate::cookie::ParseError as CookieParseError;
 use crate::helpers::Writer;
@@ -34,7 +34,7 @@ pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// General purpose actix web error.
 ///
-/// An actix web error is used to carry errors from `failure` or `std::error`
+/// An actix web error is used to carry errors from `std::error`
 /// through actix in a convenient way.  It can be created through
 /// converting errors with `into()`.
 ///
@@ -432,7 +432,7 @@ pub enum DispatchError {
     Unknown,
 }
 
-/// A set of error that can occure during parsing content type
+/// A set of error that can occur during parsing content type
 #[derive(PartialEq, Debug, Display)]
 pub enum ContentTypeError {
     /// Can not parse content type
@@ -949,10 +949,6 @@ where
 {
     InternalError::new(err, StatusCode::NETWORK_AUTHENTICATION_REQUIRED).into()
 }
-
-#[cfg(feature = "failure")]
-/// Compatibility for `failure::Error`
-impl ResponseError for fail_ure::Error {}
 
 #[cfg(feature = "actors")]
 /// `InternalServerError` for `actix::MailboxError`
