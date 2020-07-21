@@ -916,7 +916,7 @@ impl TestServerConfig {
 pub fn unused_addr() -> net::SocketAddr {
     let addr: net::SocketAddr = "127.0.0.1:0".parse().unwrap();
     let socket =
-        Socket::new(Domain::ipv4(), Type::stream(), Some(Protocol::tcp())).unwrap();
+        Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP)).unwrap();
     socket.bind(&addr.into()).unwrap();
     socket.set_reuse_address(true).unwrap();
     let tcp = socket.into_tcp_listener();

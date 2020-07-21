@@ -562,10 +562,10 @@ fn create_tcp_listener(
 ) -> io::Result<net::TcpListener> {
     use socket2::{Domain, Protocol, Socket, Type};
     let domain = match addr {
-        net::SocketAddr::V4(_) => Domain::ipv4(),
-        net::SocketAddr::V6(_) => Domain::ipv6(),
+        net::SocketAddr::V4(_) => Domain::IPV4,
+        net::SocketAddr::V6(_) => Domain::IPV6,
     };
-    let socket = Socket::new(domain, Type::stream(), Some(Protocol::tcp()))?;
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
     socket.set_reuse_address(true)?;
     socket.bind(&addr.into())?;
     socket.listen(backlog)?;
