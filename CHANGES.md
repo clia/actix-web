@@ -1,11 +1,40 @@
 # Changes
 
 ## Unreleased - 2020-xx-xx
+
+
+## 3.0.0-beta.4 - 2020-09-09
+### Added
+* `middleware::NormalizePath` now has configurable behaviour for either always having a trailing
+  slash, or as the new addition, always trimming trailing slashes. [#1639]
+
+### Changed
+* Update actix-codec and actix-utils dependencies. [#1634]
+* `FormConfig` and `JsonConfig` configurations are now also considered when set
+  using `App::data`. [#1641]
+* `HttpServer::maxconn` is renamed to the more expressive `HttpServer::max_connections`. [#1655]
+* `HttpServer::maxconnrate` is renamed to the more expressive
+  `HttpServer::max_connection_rate`. [#1655]
+
+[#1639]: https://github.com/actix/actix-web/pull/1639
+[#1641]: https://github.com/actix/actix-web/pull/1641
+[#1634]: https://github.com/actix/actix-web/pull/1634
+[#1655]: https://github.com/actix/actix-web/pull/1655
+
+## 3.0.0-beta.3 - 2020-08-17
+### Changed
+* Update `rustls` to 0.18
+
+
+## 3.0.0-beta.2 - 2020-08-17
 ### Changed
 * `PayloadConfig` is now also considered in `Bytes` and `String` extractors when set
   using `App::data`. [#1610]
 * `web::Path` now has a public representation: `web::Path(pub T)` that enables
   destructuring. [#1594]
+* `ServiceRequest::app_data` allows retrieval of non-Data data without splitting into parts to
+  access `HttpRequest` which already allows this. [#1618]
+* Re-export all error types from `awc`. [#1621]
 * MSRV is now 1.42.0.
 
 ### Fixed
@@ -14,6 +43,8 @@
 [#1594]: https://github.com/actix/actix-web/pull/1594
 [#1609]: https://github.com/actix/actix-web/pull/1609
 [#1610]: https://github.com/actix/actix-web/pull/1610
+[#1618]: https://github.com/actix/actix-web/pull/1618
+[#1621]: https://github.com/actix/actix-web/pull/1621
 
 
 ## 3.0.0-beta.1 - 2020-07-13

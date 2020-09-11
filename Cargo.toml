@@ -1,6 +1,6 @@
 [package]
 name = "actix-web"
-version = "3.0.0-beta.1"
+version = "3.0.0-beta.4"
 authors = ["Nikolay Kim <fafhrd91@gmail.com>"]
 description = "Actix web is a simple, pragmatic and extremely fast web framework for Rust."
 readme = "README.md"
@@ -65,20 +65,20 @@ name = "test_server"
 required-features = ["compress"]
 
 [dependencies]
-actix-codec = "0.2.0"
-actix-service = "1.0.2"
-actix-utils = "1.0.6"
+actix-codec = "0.3.0"
+actix-service = "1.0.6"
+actix-utils = "2.0.0"
 actix-router = "0.2.4"
 actix-rt = "1.1.1"
 actix-server = "1.0.0"
 actix-testing = "1.0.0"
 actix-macros = "0.1.0"
 actix-threadpool = "0.3.1"
-actix-tls = "2.0.0-alpha.1"
+actix-tls = "2.0.0"
 
 actix-web-codegen = "0.3.0-beta.1"
-actix-http = "2.0.0-alpha.4"
-awc = { version = "2.0.0-beta.1", default-features = false }
+actix-http = "2.0.0-beta.4"
+awc = { version = "2.0.0-beta.4", default-features = false }
 
 bytes = "0.5.3"
 derive_more = "0.99.2"
@@ -98,7 +98,7 @@ serde_urlencoded = "0.6.1"
 time = { version = "0.2.7", default-features = false, features = ["std"] }
 url = "2.1"
 open-ssl = { package = "openssl", version = "0.10", optional = true }
-rust-tls = { package = "rustls", version = "0.17.0", optional = true }
+rust-tls = { package = "rustls", version = "0.18.0", optional = true }
 tinyvec = { version = "0.3", features = ["alloc"] }
 
 [dev-dependencies]
@@ -123,6 +123,10 @@ actix-web-codegen = { path = "actix-web-codegen" }
 actix-files = { path = "actix-files" }
 actix-multipart = { path = "actix-multipart" }
 awc = { path = "awc" }
+
+[[example]]
+name = "client"
+required-features = ["rustls"]
 
 [[bench]]
 name = "server"

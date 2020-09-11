@@ -1,5 +1,23 @@
 # Changes
 
+## Unreleased - 2020-xx-xx
+
+
+## 2.0.0-beta.4 - 2020-09-09
+### Changed
+* Update actix-codec & actix-tls dependencies.
+
+
+## 2.0.0-beta.3 - 2020-08-17
+### Changed
+* Update `rustls` to 0.18
+
+
+## 2.0.0-beta.2 - 2020-07-21
+### Changed
+* Update `actix-http` dependency to 2.0.0-beta.2
+
+
 ## [2.0.0-beta.1] - 2020-07-14
 ### Changed
 * Update `actix-http` dependency to 2.0.0-beta.1

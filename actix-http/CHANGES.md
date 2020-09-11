@@ -1,10 +1,31 @@
 # Changes
 
-## [Unreleased] - xxx
+## Unreleased - 2020-xx-xx
+
+
+## 2.0.0-beta.4 - 2020-09-09
+### Changed
+* Update actix-codec and actix-utils dependencies.
+* Update actix-connect and actix-tls dependencies.
+
+
+## [2.0.0-beta.3] - 2020-08-14
+
+### Fixed
+* Memory leak of `client::pool::ConnectorPoolSupport`. [#1626]
+
+[#1626]: https://github.com/actix/actix-web/pull/1626
+
+
+## [2.0.0-beta.2] - 2020-07-21
 ### Fixed
 * Potential UB in h1 decoder using uninitialized memory. [#1614]
 
+### Changed
+* Fix illegal chunked encoding. [#1615]
+
 [#1614]: https://github.com/actix/actix-web/pull/1614
+[#1615]: https://github.com/actix/actix-web/pull/1615
 
 
 ## [2.0.0-beta.1] - 2020-07-11
