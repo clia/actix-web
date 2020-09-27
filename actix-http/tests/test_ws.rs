@@ -1,5 +1,4 @@
 use std::cell::Cell;
-use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -8,11 +7,11 @@ use actix_codec::{AsyncRead, AsyncWrite, Framed};
 use actix_http::{body, h1, ws, Error, HttpService, Request, Response};
 use actix_http_test::test_server;
 use actix_service::{fn_factory, Service};
-use actix_utils::dispatcher::Dispatcher;
+use actix_utils::framed::Dispatcher;
 use bytes::Bytes;
-use futures_util::future;
-use futures_util::task::{Context, Poll};
-use futures_util::{SinkExt, StreamExt};
+use futures::future;
+use futures::task::{Context, Poll};
+use futures::{Future, SinkExt, StreamExt};
 
 struct WsService<T>(Arc<Mutex<(PhantomData<T>, Cell<bool>)>>);
 
@@ -59,7 +58,7 @@ where
                 .await
                 .unwrap();
 
-            Dispatcher::new(framed.replace_codec(ws::Codec::new()), service)
+            Dispatcher::new(framed.into_framed(ws::Codec::new()), service)
                 .await
                 .map_err(|_| panic!())
         };

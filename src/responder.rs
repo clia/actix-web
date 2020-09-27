@@ -10,9 +10,9 @@ use actix_http::http::{
 };
 use actix_http::{Error, Response, ResponseBuilder};
 use bytes::{Bytes, BytesMut};
-use futures_util::future::{err, ok, Either as EitherFuture, Ready};
-use futures_util::ready;
-use pin_project::pin_project;
+use futures::future::{err, ok, Either as EitherFuture, Ready};
+use futures::ready;
+use pin_project::{pin_project, project};
 
 use crate::request::HttpRequest;
 
@@ -379,7 +379,7 @@ where
     }
 }
 
-#[pin_project(project = EitherResponderProj)]
+#[pin_project]
 pub enum EitherResponder<A, B>
 where
     A: Responder,
@@ -396,12 +396,14 @@ where
 {
     type Output = Result<Response, Error>;
 
+    #[project]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        #[project]
         match self.project() {
-            EitherResponderProj::A(fut) => {
+            EitherResponder::A(fut) => {
                 Poll::Ready(ready!(fut.poll(cx)).map_err(|e| e.into()))
             }
-            EitherResponderProj::B(fut) => {
+            EitherResponder::B(fut) => {
                 Poll::Ready(ready!(fut.poll(cx).map_err(|e| e.into())))
             }
         }
@@ -480,7 +482,7 @@ pub(crate) mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         match resp.response().body() {
             ResponseBody::Body(Body::Bytes(ref b)) => {
-                let bytes = b.clone();
+                let bytes: Bytes = b.clone().into();
                 assert_eq!(bytes, Bytes::from_static(b"some"));
             }
             _ => panic!(),

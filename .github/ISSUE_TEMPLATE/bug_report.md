@@ -1,6 +1,6 @@
 ---
-name: Bug Report
-about: Create a bug report.
+name: bug report
+about: create a bug report
 ---
 
 Your issue may already be reported!

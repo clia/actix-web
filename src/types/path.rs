@@ -4,7 +4,7 @@ use std::{fmt, ops};
 
 use actix_http::error::{Error, ErrorNotFound};
 use actix_router::PathDeserializer;
-use futures_util::future::{ready, Ready};
+use futures::future::{ready, Ready};
 use serde::de;
 
 use crate::dev::Payload;
@@ -25,8 +25,8 @@ use crate::FromRequest;
 /// /// extract path info from "/{username}/{count}/index.html" url
 /// /// {username} - deserializes to a String
 /// /// {count} -  - deserializes to a u32
-/// async fn index(web::Path((username, count)): web::Path<(String, u32)>) -> String {
-///     format!("Welcome {}! {}", username, count)
+/// async fn index(info: web::Path<(String, u32)>) -> String {
+///     format!("Welcome {}! {}", info.0, info.1)
 /// }
 ///
 /// fn main() {
@@ -61,18 +61,20 @@ use crate::FromRequest;
 ///     );
 /// }
 /// ```
-pub struct Path<T>(pub T);
+pub struct Path<T> {
+    inner: T,
+}
 
 impl<T> Path<T> {
     /// Deconstruct to an inner value
     pub fn into_inner(self) -> T {
-        self.0
+        self.inner
     }
 }
 
 impl<T> AsRef<T> for Path<T> {
     fn as_ref(&self) -> &T {
-        &self.0
+        &self.inner
     }
 }
 
@@ -80,31 +82,31 @@ impl<T> ops::Deref for Path<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        &self.0
+        &self.inner
     }
 }
 
 impl<T> ops::DerefMut for Path<T> {
     fn deref_mut(&mut self) -> &mut T {
-        &mut self.0
+        &mut self.inner
     }
 }
 
 impl<T> From<T> for Path<T> {
     fn from(inner: T) -> Path<T> {
-        Path(inner)
+        Path { inner }
     }
 }
 
 impl<T: fmt::Debug> fmt::Debug for Path<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        self.inner.fmt(f)
     }
 }
 
 impl<T: fmt::Display> fmt::Display for Path<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        self.inner.fmt(f)
     }
 }
 
@@ -118,8 +120,8 @@ impl<T: fmt::Display> fmt::Display for Path<T> {
 /// /// extract path info from "/{username}/{count}/index.html" url
 /// /// {username} - deserializes to a String
 /// /// {count} -  - deserializes to a u32
-/// async fn index(web::Path((username, count)): web::Path<(String, u32)>) -> String {
-///     format!("Welcome {}! {}", username, count)
+/// async fn index(info: web::Path<(String, u32)>) -> String {
+///     format!("Welcome {}! {}", info.0, info.1)
 /// }
 ///
 /// fn main() {
@@ -171,7 +173,7 @@ where
 
         ready(
             de::Deserialize::deserialize(PathDeserializer::new(req.match_info()))
-                .map(Path)
+                .map(|inner| Path { inner })
                 .map_err(move |e| {
                     log::debug!(
                         "Failed during Path extractor deserialization. \
@@ -288,22 +290,21 @@ mod tests {
         resource.match_path(req.match_info_mut());
 
         let (req, mut pl) = req.into_parts();
-        let (Path(res),) = <(Path<(String, String)>,)>::from_request(&req, &mut pl)
+        let res = <(Path<(String, String)>,)>::from_request(&req, &mut pl)
             .await
             .unwrap();
-        assert_eq!(res.0, "name");
-        assert_eq!(res.1, "user1");
+        assert_eq!((res.0).0, "name");
+        assert_eq!((res.0).1, "user1");
 
-        let (Path(a), Path(b)) =
-            <(Path<(String, String)>, Path<(String, String)>)>::from_request(
-                &req, &mut pl,
-            )
-            .await
-            .unwrap();
-        assert_eq!(a.0, "name");
-        assert_eq!(a.1, "user1");
-        assert_eq!(b.0, "name");
-        assert_eq!(b.1, "user1");
+        let res = <(Path<(String, String)>, Path<(String, String)>)>::from_request(
+            &req, &mut pl,
+        )
+        .await
+        .unwrap();
+        assert_eq!((res.0).0, "name");
+        assert_eq!((res.0).1, "user1");
+        assert_eq!((res.1).0, "name");
+        assert_eq!((res.1).1, "user1");
 
         let () = <()>::from_request(&req, &mut pl).await.unwrap();
     }
@@ -328,7 +329,7 @@ mod tests {
         let s = s.into_inner();
         assert_eq!(s.value, "user2");
 
-        let Path(s) = Path::<(String, String)>::from_request(&req, &mut pl)
+        let s = Path::<(String, String)>::from_request(&req, &mut pl)
             .await
             .unwrap();
         assert_eq!(s.0, "name");
@@ -343,7 +344,7 @@ mod tests {
         assert_eq!(s.as_ref().key, "name");
         assert_eq!(s.value, 32);
 
-        let Path(s) = Path::<(String, u8)>::from_request(&req, &mut pl)
+        let s = Path::<(String, u8)>::from_request(&req, &mut pl)
             .await
             .unwrap();
         assert_eq!(s.0, "name");

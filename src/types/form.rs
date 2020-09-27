@@ -9,8 +9,8 @@ use std::{fmt, ops};
 use actix_http::{Error, HttpMessage, Payload, Response};
 use bytes::BytesMut;
 use encoding_rs::{Encoding, UTF_8};
-use futures_util::future::{err, ok, FutureExt, LocalBoxFuture, Ready};
-use futures_util::StreamExt;
+use futures::future::{err, ok, FutureExt, LocalBoxFuture, Ready};
+use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -23,7 +23,7 @@ use crate::http::{
     StatusCode,
 };
 use crate::request::HttpRequest;
-use crate::{responder::Responder, web};
+use crate::responder::Responder;
 
 /// Form data helper (`application/x-www-form-urlencoded`)
 ///
@@ -121,12 +121,8 @@ where
     fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
         let req2 = req.clone();
         let (limit, err) = req
-            .app_data::<Self::Config>()
-            .or_else(|| {
-                req.app_data::<web::Data<Self::Config>>()
-                    .map(|d| d.as_ref())
-            })
-            .map(|c| (c.limit, c.err_handler.clone()))
+            .app_data::<FormConfig>()
+            .map(|c| (c.limit, c.ehandler.clone()))
             .unwrap_or((16384, None));
 
         UrlEncoded::new(req, payload)
@@ -195,7 +191,7 @@ impl<T: Serialize> Responder for Form<T> {
 ///         web::resource("/index.html")
 ///             // change `Form` extractor configuration
 ///             .app_data(
-///                 web::FormConfig::default().limit(4097)
+///                 web::Form::<FormData>::configure(|cfg| cfg.limit(4097))
 ///             )
 ///             .route(web::get().to(index))
 ///     );
@@ -204,7 +200,7 @@ impl<T: Serialize> Responder for Form<T> {
 #[derive(Clone)]
 pub struct FormConfig {
     limit: usize,
-    err_handler: Option<Rc<dyn Fn(UrlencodedError, &HttpRequest) -> Error>>,
+    ehandler: Option<Rc<dyn Fn(UrlencodedError, &HttpRequest) -> Error>>,
 }
 
 impl FormConfig {
@@ -219,7 +215,7 @@ impl FormConfig {
     where
         F: Fn(UrlencodedError, &HttpRequest) -> Error + 'static,
     {
-        self.err_handler = Some(Rc::new(f));
+        self.ehandler = Some(Rc::new(f));
         self
     }
 }
@@ -227,8 +223,8 @@ impl FormConfig {
 impl Default for FormConfig {
     fn default() -> Self {
         FormConfig {
-            limit: 16_384, // 2^14 bytes (~16kB)
-            err_handler: None,
+            limit: 16384,
+            ehandler: None,
         }
     }
 }
@@ -256,7 +252,6 @@ pub struct UrlEncoded<U> {
     fut: Option<LocalBoxFuture<'static, Result<U, UrlencodedError>>>,
 }
 
-#[allow(clippy::borrow_interior_mutable_const)]
 impl<U> UrlEncoded<U> {
     /// Create a new future to URL encode a request
     pub fn new(req: &HttpRequest, payload: &mut Payload) -> UrlEncoded<U> {
@@ -382,7 +377,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::http::header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE};
+    use crate::http::header::{HeaderValue, CONTENT_TYPE};
     use crate::test::TestRequest;
 
     #[derive(Deserialize, Serialize, Debug, PartialEq)]
@@ -411,15 +406,18 @@ mod tests {
 
     fn eq(err: UrlencodedError, other: UrlencodedError) -> bool {
         match err {
-            UrlencodedError::Overflow { .. } => {
-                matches!(other, UrlencodedError::Overflow { .. })
-            }
-            UrlencodedError::UnknownLength => {
-                matches!(other, UrlencodedError::UnknownLength)
-            }
-            UrlencodedError::ContentType => {
-                matches!(other, UrlencodedError::ContentType)
-            }
+            UrlencodedError::Overflow { .. } => match other {
+                UrlencodedError::Overflow { .. } => true,
+                _ => false,
+            },
+            UrlencodedError::UnknownLength => match other {
+                UrlencodedError::UnknownLength => true,
+                _ => false,
+            },
+            UrlencodedError::ContentType => match other {
+                UrlencodedError::ContentType => true,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -502,23 +500,5 @@ mod tests {
 
         use crate::responder::tests::BodyTest;
         assert_eq!(resp.body().bin_ref(), b"hello=world&counter=123");
-    }
-
-    #[actix_rt::test]
-    async fn test_with_config_in_data_wrapper() {
-        let ctype = HeaderValue::from_static("application/x-www-form-urlencoded");
-
-        let (req, mut pl) = TestRequest::default()
-            .header(CONTENT_TYPE, ctype)
-            .header(CONTENT_LENGTH, HeaderValue::from_static("20"))
-            .set_payload(Bytes::from_static(b"hello=test&counter=4"))
-            .app_data(web::Data::new(FormConfig::default().limit(10)))
-            .to_http_parts();
-
-        let s = Form::<Info>::from_request(&req, &mut pl).await;
-        assert!(s.is_err());
-
-        let err_str = s.err().unwrap().to_string();
-        assert!(err_str.contains("Urlencoded payload size is bigger"));
     }
 }

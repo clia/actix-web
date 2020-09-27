@@ -1,5 +1,4 @@
 //! Error and Result module
-
 use std::cell::RefCell;
 use std::io::Write;
 use std::str::Utf8Error;
@@ -8,7 +7,7 @@ use std::{fmt, io, result};
 
 use actix_codec::{Decoder, Encoder};
 pub use actix_threadpool::BlockingError;
-use actix_utils::dispatcher::DispatcherError as FramedDispatcherError;
+use actix_utils::framed::DispatcherError as FramedDispatcherError;
 use actix_utils::timeout::TimeoutError;
 use bytes::BytesMut;
 use derive_more::{Display, From};
@@ -19,7 +18,7 @@ use serde::de::value::Error as DeError;
 use serde_json::error::Error as JsonError;
 use serde_urlencoded::ser::Error as FormError;
 
-// re-export for convenience
+// re-export for convinience
 use crate::body::Body;
 pub use crate::cookie::ParseError as CookieParseError;
 use crate::helpers::Writer;
@@ -35,7 +34,7 @@ pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// General purpose actix web error.
 ///
-/// An actix web error is used to carry errors from `std::error`
+/// An actix web error is used to carry errors from `failure` or `std::error`
 /// through actix in a convenient way.  It can be created through
 /// converting errors with `into()`.
 ///
@@ -334,8 +333,6 @@ pub enum PayloadError {
     Io(io::Error),
 }
 
-impl std::error::Error for PayloadError {}
-
 impl From<h2::Error> for PayloadError {
     fn from(err: h2::Error) -> Self {
         PayloadError::Http2Payload(err)
@@ -433,7 +430,7 @@ pub enum DispatchError {
     Unknown,
 }
 
-/// A set of error that can occur during parsing content type
+/// A set of error that can occure during parsing content type
 #[derive(PartialEq, Debug, Display)]
 pub enum ContentTypeError {
     /// Can not parse content type
@@ -444,8 +441,6 @@ pub enum ContentTypeError {
     UnknownEncoding,
 }
 
-impl std::error::Error for ContentTypeError {}
-
 /// Return `BadRequest` for `ContentTypeError`
 impl ResponseError for ContentTypeError {
     fn status_code(&self) -> StatusCode {
@@ -453,10 +448,10 @@ impl ResponseError for ContentTypeError {
     }
 }
 
-impl<E, U: Encoder<I> + Decoder, I> ResponseError for FramedDispatcherError<E, U, I>
+impl<E, U: Encoder + Decoder> ResponseError for FramedDispatcherError<E, U>
 where
     E: fmt::Debug + fmt::Display,
-    <U as Encoder<I>>::Error: fmt::Debug,
+    <U as Encoder>::Error: fmt::Debug,
     <U as Decoder>::Error: fmt::Debug,
 {
 }
@@ -951,6 +946,10 @@ where
     InternalError::new(err, StatusCode::NETWORK_AUTHENTICATION_REQUIRED).into()
 }
 
+#[cfg(feature = "failure")]
+/// Compatibility for `failure::Error`
+impl ResponseError for fail_ure::Error {}
+
 #[cfg(feature = "actors")]
 /// `InternalServerError` for `actix::MailboxError`
 /// This is supported on feature=`actors` only
@@ -965,6 +964,7 @@ impl ResponseError for actix::actors::resolver::ResolverError {}
 mod tests {
     use super::*;
     use http::{Error as HttpError, StatusCode};
+    use httparse;
     use std::io;
 
     #[test]

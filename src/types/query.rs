@@ -4,8 +4,9 @@ use std::sync::Arc;
 use std::{fmt, ops};
 
 use actix_http::error::Error;
-use futures_util::future::{err, ok, Ready};
+use futures::future::{err, ok, Ready};
 use serde::de;
+use serde_urlencoded;
 
 use crate::dev::Payload;
 use crate::error::QueryPayloadError;
@@ -188,12 +189,12 @@ where
 ///     let app = App::new().service(
 ///         web::resource("/index.html").app_data(
 ///             // change query extractor configuration
-///             web::QueryConfig::default()
-///                 .error_handler(|err, req| {  // <- create custom error response
+///             web::Query::<Info>::configure(|cfg| {
+///                 cfg.error_handler(|err, req| {  // <- create custom error response
 ///                     error::InternalError::from_response(
 ///                         err, HttpResponse::Conflict().finish()).into()
 ///                 })
-///             )
+///             }))
 ///             .route(web::post().to(index))
 ///     );
 /// }

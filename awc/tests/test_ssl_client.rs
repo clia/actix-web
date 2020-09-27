@@ -7,7 +7,7 @@ use actix_http_test::test_server;
 use actix_service::{map_config, pipeline_factory, ServiceFactory};
 use actix_web::http::Version;
 use actix_web::{dev::AppConfig, web, App, HttpResponse};
-use futures_util::future::ok;
+use futures::future::ok;
 use open_ssl::ssl::{SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
 
 fn ssl_acceptor() -> SslAcceptor {
@@ -45,8 +45,9 @@ async fn test_connection_reuse_h2() {
         .and_then(
             HttpService::build()
                 .h2(map_config(
-                    App::new()
-                        .service(web::resource("/").route(web::to(HttpResponse::Ok))),
+                    App::new().service(
+                        web::resource("/").route(web::to(|| HttpResponse::Ok())),
+                    ),
                     |_| AppConfig::default(),
                 ))
                 .openssl(ssl_acceptor())
@@ -62,7 +63,7 @@ async fn test_connection_reuse_h2() {
         .set_alpn_protos(b"\x02h2\x08http/1.1")
         .map_err(|e| log::error!("Can not set alpn protocol: {:?}", e));
 
-    let client = awc::Client::builder()
+    let client = awc::Client::build()
         .connector(awc::Connector::new().ssl(builder.build()).finish())
         .finish();
 

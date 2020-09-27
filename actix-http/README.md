@@ -8,16 +8,17 @@ Actix http
 * [API Documentation](https://docs.rs/actix-http/)
 * [Chat on gitter](https://gitter.im/actix/actix)
 * Cargo package: [actix-http](https://crates.io/crates/actix-http)
-* Minimum supported Rust version: 1.40 or later
+* Minimum supported Rust version: 1.31 or later
 
 ## Example
 
 ```rust
+// see examples/framed_hello.rs for complete list of used crates.
 use std::{env, io};
 
 use actix_http::{HttpService, Response};
 use actix_server::Server;
-use futures_util::future;
+use futures::future;
 use http::header::HeaderValue;
 use log::info;
 

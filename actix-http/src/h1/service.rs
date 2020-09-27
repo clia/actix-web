@@ -98,7 +98,7 @@ mod openssl {
     use super::*;
 
     use actix_tls::openssl::{Acceptor, SslAcceptor, SslStream};
-    use actix_tls::{openssl::HandshakeError, TlsError};
+    use actix_tls::{openssl::HandshakeError, SslError};
 
     impl<S, B, X, U> H1Service<SslStream<TcpStream>, S, B, X, U>
     where
@@ -126,19 +126,19 @@ mod openssl {
             Config = (),
             Request = TcpStream,
             Response = (),
-            Error = TlsError<HandshakeError<TcpStream>, DispatchError>,
+            Error = SslError<HandshakeError<TcpStream>, DispatchError>,
             InitError = (),
         > {
             pipeline_factory(
                 Acceptor::new(acceptor)
-                    .map_err(TlsError::Tls)
+                    .map_err(SslError::Ssl)
                     .map_init_err(|_| panic!()),
             )
             .and_then(|io: SslStream<TcpStream>| {
                 let peer_addr = io.get_ref().peer_addr().ok();
                 ok((io, peer_addr))
             })
-            .and_then(self.map_err(TlsError::Service))
+            .and_then(self.map_err(SslError::Service))
         }
     }
 }
@@ -147,7 +147,7 @@ mod openssl {
 mod rustls {
     use super::*;
     use actix_tls::rustls::{Acceptor, ServerConfig, TlsStream};
-    use actix_tls::TlsError;
+    use actix_tls::SslError;
     use std::{fmt, io};
 
     impl<S, B, X, U> H1Service<TlsStream<TcpStream>, S, B, X, U>
@@ -176,19 +176,19 @@ mod rustls {
             Config = (),
             Request = TcpStream,
             Response = (),
-            Error = TlsError<io::Error, DispatchError>,
+            Error = SslError<io::Error, DispatchError>,
             InitError = (),
         > {
             pipeline_factory(
                 Acceptor::new(config)
-                    .map_err(TlsError::Tls)
+                    .map_err(SslError::Ssl)
                     .map_init_err(|_| panic!()),
             )
             .and_then(|io: TlsStream<TcpStream>| {
                 let peer_addr = io.get_ref().0.peer_addr().ok();
                 ok((io, peer_addr))
             })
-            .and_then(self.map_err(TlsError::Service))
+            .and_then(self.map_err(SslError::Service))
         }
     }
 }
@@ -548,12 +548,10 @@ where
 }
 
 #[doc(hidden)]
-#[pin_project::pin_project]
 pub struct OneRequestServiceResponse<T>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    #[pin]
     framed: Option<Framed<T, Codec>>,
 }
 
@@ -564,18 +562,16 @@ where
     type Output = Result<(Request, Framed<T, Codec>), ParseError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_mut().project();
-
-        match ready!(this.framed.as_pin_mut().unwrap().next_item(cx)) {
-            Some(Ok(req)) => match req {
+        match self.framed.as_mut().unwrap().next_item(cx) {
+            Poll::Ready(Some(Ok(req))) => match req {
                 Message::Item(req) => {
-                    let mut this = self.as_mut().project();
-                    Poll::Ready(Ok((req, this.framed.take().unwrap())))
+                    Poll::Ready(Ok((req, self.framed.take().unwrap())))
                 }
                 Message::Chunk(_) => unreachable!("Something is wrong"),
             },
-            Some(Err(err)) => Poll::Ready(Err(err)),
-            None => Poll::Ready(Err(ParseError::Incomplete)),
+            Poll::Ready(Some(Err(err))) => Poll::Ready(Err(err)),
+            Poll::Ready(None) => Poll::Ready(Err(ParseError::Incomplete)),
+            Poll::Pending => Poll::Pending,
         }
     }
 }

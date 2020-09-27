@@ -1,6 +1,5 @@
 //! Basic http primitives for actix-net framework.
-
-#![deny(rust_2018_idioms)]
+#![warn(rust_2018_idioms, warnings)]
 #![allow(
     clippy::type_complexity,
     clippy::too_many_arguments,
@@ -33,7 +32,7 @@ mod response;
 mod service;
 mod time_parser;
 
-pub use cookie;
+pub mod cookie;
 pub mod error;
 pub mod h1;
 pub mod h2;

@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -12,8 +11,8 @@ use actix::{
 };
 use actix_web::error::Error;
 use bytes::Bytes;
-use futures_channel::oneshot::Sender;
-use futures_core::Stream;
+use futures::channel::oneshot::Sender;
+use futures::{Future, Stream};
 
 /// Execution context for http actors
 pub struct HttpContext<A>
@@ -175,7 +174,7 @@ where
 
         // frames
         if let Some(data) = self.fut.ctx().stream.pop_front() {
-            Poll::Ready(data.map(Ok))
+            Poll::Ready(data.map(|b| Ok(b)))
         } else if self.fut.alive() {
             Poll::Pending
         } else {

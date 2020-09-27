@@ -5,8 +5,8 @@ use actix_http_test::test_server;
 use actix_service::{fn_service, ServiceFactory};
 
 use bytes::{Bytes, BytesMut};
-use futures_util::future::{err, ok, ready};
-use futures_util::stream::{once, Stream, StreamExt};
+use futures::future::{err, ok, ready};
+use futures::stream::{once, Stream, StreamExt};
 use open_ssl::ssl::{AlpnError, SslAcceptor, SslFiletype, SslMethod};
 
 use actix_http::error::{ErrorBadRequest, PayloadError};
@@ -274,7 +274,9 @@ async fn test_h2_head_empty() {
 async fn test_h2_head_binary() {
     let mut srv = test_server(move || {
         HttpService::build()
-            .h2(|_| ok::<_, ()>(Response::Ok().body(STR)))
+            .h2(|_| {
+                ok::<_, ()>(Response::Ok().content_length(STR.len() as u64).body(STR))
+            })
             .openssl(ssl_acceptor())
             .map_err(|_| ())
     })

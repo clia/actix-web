@@ -6,8 +6,6 @@ use fxhash::FxHashMap;
 #[derive(Default)]
 /// A type map of request extensions.
 pub struct Extensions {
-    /// Use FxHasher with a std HashMap with for faster
-    /// lookups on the small `TypeId` (u64 equivalent) keys.
     map: FxHashMap<TypeId, Box<dyn Any>>,
 }
 
@@ -69,113 +67,108 @@ impl fmt::Debug for Extensions {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[test]
+fn test_remove() {
+    let mut map = Extensions::new();
 
-    #[test]
-    fn test_remove() {
-        let mut map = Extensions::new();
+    map.insert::<i8>(123);
+    assert!(map.get::<i8>().is_some());
 
-        map.insert::<i8>(123);
-        assert!(map.get::<i8>().is_some());
+    map.remove::<i8>();
+    assert!(map.get::<i8>().is_none());
+}
 
-        map.remove::<i8>();
-        assert!(map.get::<i8>().is_none());
+#[test]
+fn test_clear() {
+    let mut map = Extensions::new();
+
+    map.insert::<i8>(8);
+    map.insert::<i16>(16);
+    map.insert::<i32>(32);
+
+    assert!(map.contains::<i8>());
+    assert!(map.contains::<i16>());
+    assert!(map.contains::<i32>());
+
+    map.clear();
+
+    assert!(!map.contains::<i8>());
+    assert!(!map.contains::<i16>());
+    assert!(!map.contains::<i32>());
+
+    map.insert::<i8>(10);
+    assert_eq!(*map.get::<i8>().unwrap(), 10);
+}
+
+#[test]
+fn test_integers() {
+    let mut map = Extensions::new();
+
+    map.insert::<i8>(8);
+    map.insert::<i16>(16);
+    map.insert::<i32>(32);
+    map.insert::<i64>(64);
+    map.insert::<i128>(128);
+    map.insert::<u8>(8);
+    map.insert::<u16>(16);
+    map.insert::<u32>(32);
+    map.insert::<u64>(64);
+    map.insert::<u128>(128);
+    assert!(map.get::<i8>().is_some());
+    assert!(map.get::<i16>().is_some());
+    assert!(map.get::<i32>().is_some());
+    assert!(map.get::<i64>().is_some());
+    assert!(map.get::<i128>().is_some());
+    assert!(map.get::<u8>().is_some());
+    assert!(map.get::<u16>().is_some());
+    assert!(map.get::<u32>().is_some());
+    assert!(map.get::<u64>().is_some());
+    assert!(map.get::<u128>().is_some());
+}
+
+#[test]
+fn test_composition() {
+    struct Magi<T>(pub T);
+
+    struct Madoka {
+        pub god: bool,
     }
 
-    #[test]
-    fn test_clear() {
-        let mut map = Extensions::new();
-
-        map.insert::<i8>(8);
-        map.insert::<i16>(16);
-        map.insert::<i32>(32);
-
-        assert!(map.contains::<i8>());
-        assert!(map.contains::<i16>());
-        assert!(map.contains::<i32>());
-
-        map.clear();
-
-        assert!(!map.contains::<i8>());
-        assert!(!map.contains::<i16>());
-        assert!(!map.contains::<i32>());
-
-        map.insert::<i8>(10);
-        assert_eq!(*map.get::<i8>().unwrap(), 10);
+    struct Homura {
+        pub attempts: usize,
     }
 
-    #[test]
-    fn test_integers() {
-        let mut map = Extensions::new();
-
-        map.insert::<i8>(8);
-        map.insert::<i16>(16);
-        map.insert::<i32>(32);
-        map.insert::<i64>(64);
-        map.insert::<i128>(128);
-        map.insert::<u8>(8);
-        map.insert::<u16>(16);
-        map.insert::<u32>(32);
-        map.insert::<u64>(64);
-        map.insert::<u128>(128);
-        assert!(map.get::<i8>().is_some());
-        assert!(map.get::<i16>().is_some());
-        assert!(map.get::<i32>().is_some());
-        assert!(map.get::<i64>().is_some());
-        assert!(map.get::<i128>().is_some());
-        assert!(map.get::<u8>().is_some());
-        assert!(map.get::<u16>().is_some());
-        assert!(map.get::<u32>().is_some());
-        assert!(map.get::<u64>().is_some());
-        assert!(map.get::<u128>().is_some());
+    struct Mami {
+        pub guns: usize,
     }
 
-    #[test]
-    fn test_composition() {
-        struct Magi<T>(pub T);
+    let mut map = Extensions::new();
 
-        struct Madoka {
-            pub god: bool,
-        }
+    map.insert(Magi(Madoka { god: false }));
+    map.insert(Magi(Homura { attempts: 0 }));
+    map.insert(Magi(Mami { guns: 999 }));
 
-        struct Homura {
-            pub attempts: usize,
-        }
+    assert!(!map.get::<Magi<Madoka>>().unwrap().0.god);
+    assert_eq!(0, map.get::<Magi<Homura>>().unwrap().0.attempts);
+    assert_eq!(999, map.get::<Magi<Mami>>().unwrap().0.guns);
+}
 
-        struct Mami {
-            pub guns: usize,
-        }
+#[test]
+fn test_extensions() {
+    #[derive(Debug, PartialEq)]
+    struct MyType(i32);
 
-        let mut map = Extensions::new();
+    let mut extensions = Extensions::new();
 
-        map.insert(Magi(Madoka { god: false }));
-        map.insert(Magi(Homura { attempts: 0 }));
-        map.insert(Magi(Mami { guns: 999 }));
+    extensions.insert(5i32);
+    extensions.insert(MyType(10));
 
-        assert!(!map.get::<Magi<Madoka>>().unwrap().0.god);
-        assert_eq!(0, map.get::<Magi<Homura>>().unwrap().0.attempts);
-        assert_eq!(999, map.get::<Magi<Mami>>().unwrap().0.guns);
-    }
+    assert_eq!(extensions.get(), Some(&5i32));
+    assert_eq!(extensions.get_mut(), Some(&mut 5i32));
 
-    #[test]
-    fn test_extensions() {
-        #[derive(Debug, PartialEq)]
-        struct MyType(i32);
+    assert_eq!(extensions.remove::<i32>(), Some(5i32));
+    assert!(extensions.get::<i32>().is_none());
 
-        let mut extensions = Extensions::new();
-
-        extensions.insert(5i32);
-        extensions.insert(MyType(10));
-
-        assert_eq!(extensions.get(), Some(&5i32));
-        assert_eq!(extensions.get_mut(), Some(&mut 5i32));
-
-        assert_eq!(extensions.remove::<i32>(), Some(5i32));
-        assert!(extensions.get::<i32>().is_none());
-
-        assert_eq!(extensions.get::<bool>(), None);
-        assert_eq!(extensions.get(), Some(&MyType(10)));
-    }
+    assert_eq!(extensions.get::<bool>(), None);
+    assert_eq!(extensions.get(), Some(&MyType(10)));
 }

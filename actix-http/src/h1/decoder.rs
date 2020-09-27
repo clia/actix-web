@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::io;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::task::Poll;
 
 use actix_codec::Decoder;
@@ -17,7 +18,7 @@ use crate::request::Request;
 const MAX_BUFFER_SIZE: usize = 131_072;
 const MAX_HEADERS: usize = 96;
 
-/// Incoming message decoder
+/// Incoming messagd decoder
 pub(crate) struct MessageDecoder<T: MessageType>(PhantomData<T>);
 
 #[derive(Debug)]
@@ -45,7 +46,7 @@ impl<T: MessageType> Decoder for MessageDecoder<T> {
 
 pub(crate) enum PayloadLength {
     Payload(PayloadType),
-    UpgradeWebSocket,
+    Upgrade,
     None,
 }
 
@@ -64,7 +65,7 @@ pub(crate) trait MessageType: Sized {
         raw_headers: &[HeaderIndex],
     ) -> Result<PayloadLength, ParseError> {
         let mut ka = None;
-        let mut has_upgrade_websocket = false;
+        let mut has_upgrade = false;
         let mut expect = false;
         let mut chunked = false;
         let mut content_length = None;
@@ -76,14 +77,12 @@ pub(crate) trait MessageType: Sized {
                 let name =
                     HeaderName::from_bytes(&slice[idx.name.0..idx.name.1]).unwrap();
 
-                // SAFETY: httparse already checks header value is only visible ASCII bytes
-                // from_maybe_shared_unchecked contains debug assertions so they are omitted here
+                // Unsafe: httparse check header value for valid utf-8
                 let value = unsafe {
                     HeaderValue::from_maybe_shared_unchecked(
                         slice.slice(idx.value.0..idx.value.1),
                     )
                 };
-
                 match name {
                     header::CONTENT_LENGTH => {
                         if let Ok(s) = value.to_str() {
@@ -125,9 +124,12 @@ pub(crate) trait MessageType: Sized {
                         };
                     }
                     header::UPGRADE => {
+                        has_upgrade = true;
+                        // check content-length, some clients (dart)
+                        // sends "content-length: 0" with websocket upgrade
                         if let Ok(val) = value.to_str().map(|val| val.trim()) {
                             if val.eq_ignore_ascii_case("websocket") {
-                                has_upgrade_websocket = true;
+                                content_length = None;
                             }
                         }
                     }
@@ -154,13 +156,13 @@ pub(crate) trait MessageType: Sized {
             Ok(PayloadLength::Payload(PayloadType::Payload(
                 PayloadDecoder::chunked(),
             )))
-        } else if has_upgrade_websocket {
-            Ok(PayloadLength::UpgradeWebSocket)
         } else if let Some(len) = content_length {
             // Content-Length
             Ok(PayloadLength::Payload(PayloadType::Payload(
                 PayloadDecoder::length(len),
             )))
+        } else if has_upgrade {
+            Ok(PayloadLength::Upgrade)
         } else {
             Ok(PayloadLength::None)
         }
@@ -182,11 +184,16 @@ impl MessageType for Request {
         &mut self.head_mut().headers
     }
 
+    #[allow(clippy::uninit_assumed_init)]
     fn decode(src: &mut BytesMut) -> Result<Option<(Self, PayloadType)>, ParseError> {
-        let mut headers: [HeaderIndex; MAX_HEADERS] = EMPTY_HEADER_INDEX_ARRAY;
+        // Unsafe: we read only this data only after httparse parses headers into.
+        // performance bump for pipeline benchmarks.
+        let mut headers: [HeaderIndex; MAX_HEADERS] =
+            unsafe { MaybeUninit::uninit().assume_init() };
 
         let (len, method, uri, ver, h_len) = {
-            let mut parsed: [httparse::Header<'_>; MAX_HEADERS] = EMPTY_HEADER_ARRAY;
+            let mut parsed: [httparse::Header<'_>; MAX_HEADERS] =
+                unsafe { MaybeUninit::uninit().assume_init() };
 
             let mut req = httparse::Request::new(&mut parsed);
             match req.parse(src)? {
@@ -215,7 +222,7 @@ impl MessageType for Request {
         // payload decoder
         let decoder = match length {
             PayloadLength::Payload(pl) => pl,
-            PayloadLength::UpgradeWebSocket => {
+            PayloadLength::Upgrade => {
                 // upgrade(websocket)
                 PayloadType::Stream(PayloadDecoder::eof())
             }
@@ -253,11 +260,16 @@ impl MessageType for ResponseHead {
         &mut self.headers
     }
 
+    #[allow(clippy::uninit_assumed_init)]
     fn decode(src: &mut BytesMut) -> Result<Option<(Self, PayloadType)>, ParseError> {
-        let mut headers: [HeaderIndex; MAX_HEADERS] = EMPTY_HEADER_INDEX_ARRAY;
+        // Unsafe: we read only this data only after httparse parses headers into.
+        // performance bump for pipeline benchmarks.
+        let mut headers: [HeaderIndex; MAX_HEADERS] =
+            unsafe { MaybeUninit::uninit().assume_init() };
 
         let (len, ver, status, h_len) = {
-            let mut parsed: [httparse::Header<'_>; MAX_HEADERS] = EMPTY_HEADER_ARRAY;
+            let mut parsed: [httparse::Header<'_>; MAX_HEADERS] =
+                unsafe { MaybeUninit::uninit().assume_init() };
 
             let mut res = httparse::Response::new(&mut parsed);
             match res.parse(src)? {
@@ -311,17 +323,6 @@ pub(crate) struct HeaderIndex {
     pub(crate) name: (usize, usize),
     pub(crate) value: (usize, usize),
 }
-
-pub(crate) const EMPTY_HEADER_INDEX: HeaderIndex = HeaderIndex {
-    name: (0, 0),
-    value: (0, 0),
-};
-
-pub(crate) const EMPTY_HEADER_INDEX_ARRAY: [HeaderIndex; MAX_HEADERS] =
-    [EMPTY_HEADER_INDEX; MAX_HEADERS];
-
-pub(crate) const EMPTY_HEADER_ARRAY: [httparse::Header<'static>; MAX_HEADERS] =
-    [httparse::EMPTY_HEADER; MAX_HEADERS];
 
 impl HeaderIndex {
     pub(crate) fn record(
@@ -654,7 +655,10 @@ mod tests {
         }
 
         fn is_unhandled(&self) -> bool {
-            matches!(self, PayloadType::Stream(_))
+            match self {
+                PayloadType::Stream(_) => true,
+                _ => false,
+            }
         }
     }
 
@@ -666,7 +670,10 @@ mod tests {
             }
         }
         fn eof(&self) -> bool {
-            matches!(*self, PayloadItem::Eof)
+            match *self {
+                PayloadItem::Eof => true,
+                _ => false,
+            }
         }
     }
 
@@ -972,7 +979,7 @@ mod tests {
             unreachable!("Error");
         }
 
-        // intentional typo in "chunked"
+        // type in chunked
         let mut buf = BytesMut::from(
             "GET /test HTTP/1.1\r\n\
              transfer-encoding: chnked\r\n\r\n",
@@ -1033,7 +1040,7 @@ mod tests {
     }
 
     #[test]
-    fn test_http_request_upgrade_websocket() {
+    fn test_http_request_upgrade() {
         let mut buf = BytesMut::from(
             "GET /test HTTP/1.1\r\n\
              connection: upgrade\r\n\
@@ -1045,26 +1052,6 @@ mod tests {
         assert_eq!(req.head().connection_type(), ConnectionType::Upgrade);
         assert!(req.upgrade());
         assert!(pl.is_unhandled());
-    }
-
-    #[test]
-    fn test_http_request_upgrade_h2c() {
-        let mut buf = BytesMut::from(
-            "GET /test HTTP/1.1\r\n\
-             connection: upgrade, http2-settings\r\n\
-             upgrade: h2c\r\n\
-             http2-settings: dummy\r\n\r\n",
-        );
-        let mut reader = MessageDecoder::<Request>::default();
-        let (req, pl) = reader.decode(&mut buf).unwrap().unwrap();
-        // `connection: upgrade, http2-settings` doesn't work properly..
-        // see MessageType::set_headers().
-        //
-        // The line below should be:
-        // assert_eq!(req.head().connection_type(), ConnectionType::Upgrade);
-        assert_eq!(req.head().connection_type(), ConnectionType::KeepAlive);
-        assert!(req.upgrade());
-        assert!(!pl.is_unhandled());
     }
 
     #[test]

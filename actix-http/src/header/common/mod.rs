@@ -9,13 +9,11 @@
 
 pub use self::accept_charset::AcceptCharset;
 //pub use self::accept_encoding::AcceptEncoding;
-pub use self::accept::Accept;
 pub use self::accept_language::AcceptLanguage;
+pub use self::accept::Accept;
 pub use self::allow::Allow;
 pub use self::cache_control::{CacheControl, CacheDirective};
-pub use self::content_disposition::{
-    ContentDisposition, DispositionParam, DispositionType,
-};
+pub use self::content_disposition::{ContentDisposition, DispositionType, DispositionParam};
 pub use self::content_language::ContentLanguage;
 pub use self::content_range::{ContentRange, ContentRangeSpec};
 pub use self::content_type::ContentType;
@@ -49,7 +47,7 @@ macro_rules! __hyper__deref {
                 &mut self.0
             }
         }
-    };
+    }
 }
 
 #[doc(hidden)]
@@ -76,8 +74,8 @@ macro_rules! test_header {
     ($id:ident, $raw:expr) => {
         #[test]
         fn $id() {
-            use super::*;
             use $crate::test;
+            use super::*;
 
             let raw = $raw;
             let a: Vec<Vec<u8>> = raw.iter().map(|x| x.to_vec()).collect();
@@ -120,7 +118,7 @@ macro_rules! test_header {
             // Test formatting
             if typed.is_some() {
                 let raw = &($raw)[..];
-                let mut iter = raw.iter().map(|b| str::from_utf8(&b[..]).unwrap());
+                let mut iter = raw.iter().map(|b|str::from_utf8(&b[..]).unwrap());
                 let mut joined = String::new();
                 joined.push_str(iter.next().unwrap());
                 for s in iter {
@@ -130,7 +128,7 @@ macro_rules! test_header {
                 assert_eq!(format!("{}", typed.unwrap()), joined);
             }
         }
-    };
+    }
 }
 
 #[macro_export]
@@ -332,10 +330,11 @@ macro_rules! header {
     };
 }
 
+
 mod accept_charset;
 //mod accept_encoding;
-mod accept;
 mod accept_language;
+mod accept;
 mod allow;
 mod cache_control;
 mod content_disposition;

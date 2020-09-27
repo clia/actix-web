@@ -173,12 +173,13 @@ impl Decoder for ClientPayloadCodec {
     }
 }
 
-impl Encoder<Message<(RequestHeadType, BodySize)>> for ClientCodec {
+impl Encoder for ClientCodec {
+    type Item = Message<(RequestHeadType, BodySize)>;
     type Error = io::Error;
 
     fn encode(
         &mut self,
-        item: Message<(RequestHeadType, BodySize)>,
+        item: Self::Item,
         dst: &mut BytesMut,
     ) -> Result<(), Self::Error> {
         match item {

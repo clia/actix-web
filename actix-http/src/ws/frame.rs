@@ -229,7 +229,10 @@ mod tests {
     fn is_none(
         frm: &Result<Option<(bool, OpCode, Option<BytesMut>)>, ProtocolError>,
     ) -> bool {
-        matches!(*frm, Ok(None))
+        match *frm {
+            Ok(None) => true,
+            _ => false,
+        }
     }
 
     fn extract(

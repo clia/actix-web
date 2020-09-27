@@ -10,7 +10,7 @@ use bytes::Bytes;
 use futures_core::{ready, Future};
 use futures_util::future::ok;
 use h2::server::{self, Handshake};
-use pin_project::pin_project;
+use pin_project::{pin_project, project};
 
 use crate::body::MessageBody;
 use crate::builder::HttpServiceBuilder;
@@ -195,7 +195,7 @@ where
 mod openssl {
     use super::*;
     use actix_tls::openssl::{Acceptor, SslAcceptor, SslStream};
-    use actix_tls::{openssl::HandshakeError, TlsError};
+    use actix_tls::{openssl::HandshakeError, SslError};
 
     impl<S, B, X, U> HttpService<SslStream<TcpStream>, S, B, X, U>
     where
@@ -226,12 +226,12 @@ mod openssl {
             Config = (),
             Request = TcpStream,
             Response = (),
-            Error = TlsError<HandshakeError<TcpStream>, DispatchError>,
+            Error = SslError<HandshakeError<TcpStream>, DispatchError>,
             InitError = (),
         > {
             pipeline_factory(
                 Acceptor::new(acceptor)
-                    .map_err(TlsError::Tls)
+                    .map_err(SslError::Ssl)
                     .map_init_err(|_| panic!()),
             )
             .and_then(|io: SslStream<TcpStream>| {
@@ -247,7 +247,7 @@ mod openssl {
                 let peer_addr = io.get_ref().peer_addr().ok();
                 ok((io, proto, peer_addr))
             })
-            .and_then(self.map_err(TlsError::Service))
+            .and_then(self.map_err(SslError::Service))
         }
     }
 }
@@ -256,7 +256,7 @@ mod openssl {
 mod rustls {
     use super::*;
     use actix_tls::rustls::{Acceptor, ServerConfig, Session, TlsStream};
-    use actix_tls::TlsError;
+    use actix_tls::SslError;
     use std::io;
 
     impl<S, B, X, U> HttpService<TlsStream<TcpStream>, S, B, X, U>
@@ -288,7 +288,7 @@ mod rustls {
             Config = (),
             Request = TcpStream,
             Response = (),
-            Error = TlsError<io::Error, DispatchError>,
+            Error = SslError<io::Error, DispatchError>,
             InitError = (),
         > {
             let protos = vec!["h2".to_string().into(), "http/1.1".to_string().into()];
@@ -296,7 +296,7 @@ mod rustls {
 
             pipeline_factory(
                 Acceptor::new(config)
-                    .map_err(TlsError::Tls)
+                    .map_err(SslError::Ssl)
                     .map_init_err(|_| panic!()),
             )
             .and_then(|io: TlsStream<TcpStream>| {
@@ -312,7 +312,7 @@ mod rustls {
                 let peer_addr = io.get_ref().0.peer_addr().ok();
                 ok((io, proto, peer_addr))
             })
-            .and_then(self.map_err(TlsError::Service))
+            .and_then(self.map_err(SslError::Service))
         }
     }
 }
@@ -574,7 +574,7 @@ where
     }
 }
 
-#[pin_project(project = StateProj)]
+#[pin_project]
 enum State<T, S, B, X, U>
 where
     S: Service<Request = Request>,
@@ -650,14 +650,16 @@ where
     U: Service<Request = (Request, Framed<T, h1::Codec>), Response = ()>,
     U::Error: fmt::Display,
 {
+    #[project]
     fn poll(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), DispatchError>> {
+        #[project]
         match self.as_mut().project() {
-            StateProj::H1(disp) => disp.poll(cx),
-            StateProj::H2(disp) => disp.poll(cx),
-            StateProj::H2Handshake(ref mut data) => {
+            State::H1(disp) => disp.poll(cx),
+            State::H2(disp) => disp.poll(cx),
+            State::H2Handshake(ref mut data) => {
                 let conn = if let Some(ref mut item) = data {
                     match Pin::new(&mut item.0).poll(cx) {
                         Poll::Ready(Ok(conn)) => conn,

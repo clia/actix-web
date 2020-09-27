@@ -4,18 +4,16 @@ use std::task::{Context, Poll};
 
 use actix_codec::{AsyncRead, AsyncWrite, Framed};
 use actix_service::{IntoService, Service};
-use actix_utils::dispatcher::{Dispatcher as InnerDispatcher, DispatcherError};
+use actix_utils::framed;
 
 use super::{Codec, Frame, Message};
 
-#[pin_project::pin_project]
 pub struct Dispatcher<S, T>
 where
     S: Service<Request = Frame, Response = Message> + 'static,
     T: AsyncRead + AsyncWrite,
 {
-    #[pin]
-    inner: InnerDispatcher<S, T, Codec, Message>,
+    inner: framed::Dispatcher<S, T, Codec>,
 }
 
 impl<S, T> Dispatcher<S, T>
@@ -27,13 +25,13 @@ where
 {
     pub fn new<F: IntoService<S>>(io: T, service: F) -> Self {
         Dispatcher {
-            inner: InnerDispatcher::new(Framed::new(io, Codec::new()), service),
+            inner: framed::Dispatcher::new(Framed::new(io, Codec::new()), service),
         }
     }
 
     pub fn with<F: IntoService<S>>(framed: Framed<T, Codec>, service: F) -> Self {
         Dispatcher {
-            inner: InnerDispatcher::new(framed, service),
+            inner: framed::Dispatcher::new(framed, service),
         }
     }
 }
@@ -45,9 +43,9 @@ where
     S::Future: 'static,
     S::Error: 'static,
 {
-    type Output = Result<(), DispatcherError<S::Error, Codec, Message>>;
+    type Output = Result<(), framed::DispatcherError<S::Error, Codec>>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().inner.poll(cx)
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.inner).poll(cx)
     }
 }

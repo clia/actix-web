@@ -12,8 +12,8 @@ const X_FORWARDED_PROTO: &[u8] = b"x-forwarded-proto";
 pub struct ConnectionInfo {
     scheme: String,
     host: String,
-    realip_remote_addr: Option<String>,
-    remote_addr: Option<String>,
+    remote: Option<String>,
+    peer: Option<String>,
 }
 
 impl ConnectionInfo {
@@ -25,11 +25,12 @@ impl ConnectionInfo {
         Ref::map(req.extensions(), |e| e.get().unwrap())
     }
 
-    #[allow(clippy::cognitive_complexity, clippy::borrow_interior_mutable_const)]
+    #[allow(clippy::cognitive_complexity)]
     fn new(req: &RequestHead, cfg: &AppConfig) -> ConnectionInfo {
         let mut host = None;
         let mut scheme = None;
-        let mut realip_remote_addr = None;
+        let mut remote = None;
+        let mut peer = None;
 
         // load forwarded header
         for hdr in req.headers.get_all(&header::FORWARDED) {
@@ -41,8 +42,8 @@ impl ConnectionInfo {
                             if let Some(val) = items.next() {
                                 match &name.to_lowercase() as &str {
                                     "for" => {
-                                        if realip_remote_addr.is_none() {
-                                            realip_remote_addr = Some(val.trim());
+                                        if remote.is_none() {
+                                            remote = Some(val.trim());
                                         }
                                     }
                                     "proto" => {
@@ -105,25 +106,27 @@ impl ConnectionInfo {
             }
         }
 
-        // get remote_addraddr from socketaddr
-        let remote_addr = req.peer_addr.map(|addr| format!("{}", addr));
-
-        if realip_remote_addr.is_none() {
+        // remote addr
+        if remote.is_none() {
             if let Some(h) = req
                 .headers
                 .get(&HeaderName::from_lowercase(X_FORWARDED_FOR).unwrap())
             {
                 if let Ok(h) = h.to_str() {
-                    realip_remote_addr = h.split(',').next().map(|v| v.trim());
+                    remote = h.split(',').next().map(|v| v.trim());
                 }
+            }
+            if remote.is_none() {
+                // get peeraddr from socketaddr
+                peer = req.peer_addr.map(|addr| format!("{}", addr));
             }
         }
 
         ConnectionInfo {
-            remote_addr,
+            peer,
             scheme: scheme.unwrap_or("http").to_owned(),
             host: host.unwrap_or("localhost").to_owned(),
-            realip_remote_addr: realip_remote_addr.map(|s| s.to_owned()),
+            remote: remote.map(|s| s.to_owned()),
         }
     }
 
@@ -152,23 +155,13 @@ impl ConnectionInfo {
         &self.host
     }
 
-    /// remote_addr address of the request.
-    ///
-    /// Get remote_addr address from socket address
-    pub fn remote_addr(&self) -> Option<&str> {
-        if let Some(ref remote_addr) = self.remote_addr {
-            Some(remote_addr)
-        } else {
-            None
-        }
-    }
-    /// Real ip remote addr of client initiated HTTP request.
+    /// Remote socket addr of client initiated HTTP request.
     ///
     /// The addr is resolved through the following headers, in this order:
     ///
     /// - Forwarded
     /// - X-Forwarded-For
-    /// - remote_addr name of opened socket
+    /// - peer name of opened socket
     ///
     /// # Security
     /// Do not use this function for security purposes, unless you can ensure the Forwarded and
@@ -176,11 +169,11 @@ impl ConnectionInfo {
     /// address explicitly, use
     /// [`HttpRequest::peer_addr()`](../web/struct.HttpRequest.html#method.peer_addr) instead.
     #[inline]
-    pub fn realip_remote_addr(&self) -> Option<&str> {
-        if let Some(ref r) = self.realip_remote_addr {
+    pub fn remote(&self) -> Option<&str> {
+        if let Some(ref r) = self.remote {
             Some(r)
-        } else if let Some(ref remote_addr) = self.remote_addr {
-            Some(remote_addr)
+        } else if let Some(ref peer) = self.peer {
+            Some(peer)
         } else {
             None
         }
@@ -209,7 +202,7 @@ mod tests {
         let info = req.connection_info();
         assert_eq!(info.scheme(), "https");
         assert_eq!(info.host(), "rust-lang.org");
-        assert_eq!(info.realip_remote_addr(), Some("192.0.2.60"));
+        assert_eq!(info.remote(), Some("192.0.2.60"));
 
         let req = TestRequest::default()
             .header(header::HOST, "rust-lang.org")
@@ -218,20 +211,20 @@ mod tests {
         let info = req.connection_info();
         assert_eq!(info.scheme(), "http");
         assert_eq!(info.host(), "rust-lang.org");
-        assert_eq!(info.realip_remote_addr(), None);
+        assert_eq!(info.remote(), None);
 
         let req = TestRequest::default()
             .header(X_FORWARDED_FOR, "192.0.2.60")
             .to_http_request();
         let info = req.connection_info();
-        assert_eq!(info.realip_remote_addr(), Some("192.0.2.60"));
+        assert_eq!(info.remote(), Some("192.0.2.60"));
 
         let req = TestRequest::default()
             .header(X_FORWARDED_HOST, "192.0.2.60")
             .to_http_request();
         let info = req.connection_info();
         assert_eq!(info.host(), "192.0.2.60");
-        assert_eq!(info.realip_remote_addr(), None);
+        assert_eq!(info.remote(), None);
 
         let req = TestRequest::default()
             .header(X_FORWARDED_PROTO, "https")

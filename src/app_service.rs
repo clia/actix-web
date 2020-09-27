@@ -9,11 +9,10 @@ use actix_http::{Extensions, Request, Response};
 use actix_router::{Path, ResourceDef, ResourceInfo, Router, Url};
 use actix_service::boxed::{self, BoxService, BoxServiceFactory};
 use actix_service::{fn_service, Service, ServiceFactory};
-use futures_util::future::{join_all, ok, FutureExt, LocalBoxFuture};
-use tinyvec::tiny_vec;
+use futures::future::{ok, FutureExt, LocalBoxFuture};
 
 use crate::config::{AppConfig, AppService};
-use crate::data::{DataFactory, FnDataFactory};
+use crate::data::DataFactory;
 use crate::error::Error;
 use crate::guard::Guard;
 use crate::request::{HttpRequest, HttpRequestPool};
@@ -24,6 +23,8 @@ type Guards = Vec<Box<dyn Guard>>;
 type HttpService = BoxService<ServiceRequest, ServiceResponse, Error>;
 type HttpNewService = BoxServiceFactory<(), ServiceRequest, ServiceResponse, Error, ()>;
 type BoxResponse = LocalBoxFuture<'static, Result<ServiceResponse, Error>>;
+type FnDataFactory =
+    Box<dyn Fn() -> LocalBoxFuture<'static, Result<Box<dyn DataFactory>, ()>>>;
 
 /// Service factory to convert `Request` to a `ServiceRequest<S>`.
 /// It also executes data factories.
@@ -77,7 +78,7 @@ where
         let mut config = AppService::new(config, default.clone(), self.data.clone());
 
         // register services
-        std::mem::take(&mut *self.services.borrow_mut())
+        std::mem::replace(&mut *self.services.borrow_mut(), Vec::new())
             .into_iter()
             .for_each(|mut srv| srv.register(&mut config));
 
@@ -100,7 +101,7 @@ where
         });
 
         // external resources
-        for mut rdef in std::mem::take(&mut *self.external.borrow_mut()) {
+        for mut rdef in std::mem::replace(&mut *self.external.borrow_mut(), Vec::new()) {
             rmap.add(&mut rdef, None);
         }
 
@@ -108,15 +109,12 @@ where
         let rmap = Rc::new(rmap);
         rmap.finish(rmap.clone());
 
-        // start all data factory futures
-        let factory_futs = join_all(self.data_factories.iter().map(|f| f()));
-
         AppInitResult {
             endpoint: None,
             endpoint_fut: self.endpoint.new_service(()),
             data: self.data.clone(),
-            data_factories: None,
-            data_factories_fut: factory_futs.boxed_local(),
+            data_factories: Vec::new(),
+            data_factories_fut: self.data_factories.iter().map(|f| f()).collect(),
             extensions: Some(
                 self.extensions
                     .borrow_mut()
@@ -135,21 +133,15 @@ pub struct AppInitResult<T, B>
 where
     T: ServiceFactory,
 {
+    endpoint: Option<T::Service>,
     #[pin]
     endpoint_fut: T::Future,
-    // a Some signals completion of endpoint creation
-    endpoint: Option<T::Service>,
-
-    #[pin]
-    data_factories_fut: LocalBoxFuture<'static, Vec<Result<Box<dyn DataFactory>, ()>>>,
-    // a Some signals completion of factory futures
-    data_factories: Option<Vec<Box<dyn DataFactory>>>,
-
     rmap: Rc<ResourceMap>,
     config: AppConfig,
     data: Rc<Vec<Box<dyn DataFactory>>>,
+    data_factories: Vec<Box<dyn DataFactory>>,
+    data_factories_fut: Vec<LocalBoxFuture<'static, Result<Box<dyn DataFactory>, ()>>>,
     extensions: Option<Extensions>,
-
     _t: PhantomData<B>,
 }
 
@@ -169,46 +161,44 @@ where
         let this = self.project();
 
         // async data factories
-        if let Poll::Ready(factories) = this.data_factories_fut.poll(cx) {
-            let factories: Result<Vec<_>, ()> = factories.into_iter().collect();
-
-            if let Ok(factories) = factories {
-                this.data_factories.replace(factories);
-            } else {
-                return Poll::Ready(Err(()));
+        let mut idx = 0;
+        while idx < this.data_factories_fut.len() {
+            match Pin::new(&mut this.data_factories_fut[idx]).poll(cx)? {
+                Poll::Ready(f) => {
+                    this.data_factories.push(f);
+                    let _ = this.data_factories_fut.remove(idx);
+                }
+                Poll::Pending => idx += 1,
             }
         }
 
-        // app service and middleware
         if this.endpoint.is_none() {
             if let Poll::Ready(srv) = this.endpoint_fut.poll(cx)? {
                 *this.endpoint = Some(srv);
             }
         }
 
-        // not using if let so condition only needs shared ref
-        if this.endpoint.is_some() && this.data_factories.is_some() {
+        if this.endpoint.is_some() && this.data_factories_fut.is_empty() {
             // create app data container
             let mut data = this.extensions.take().unwrap();
-
             for f in this.data.iter() {
                 f.create(&mut data);
             }
 
-            for f in this.data_factories.take().unwrap().iter() {
+            for f in this.data_factories.iter() {
                 f.create(&mut data);
             }
 
-            return Poll::Ready(Ok(AppInitService {
+            Poll::Ready(Ok(AppInitService {
                 service: this.endpoint.take().unwrap(),
                 rmap: this.rmap.clone(),
                 config: this.config.clone(),
                 data: Rc::new(data),
                 pool: HttpRequestPool::create(),
-            }));
+            }))
+        } else {
+            Poll::Pending
         }
-
-        Poll::Pending
     }
 }
 
@@ -246,7 +236,7 @@ where
             inner.path.reset();
             inner.head = head;
             inner.payload = payload;
-            inner.app_data = tiny_vec![self.data.clone()];
+            inner.app_data = self.data.clone();
             req
         } else {
             HttpRequest::new(
@@ -475,7 +465,7 @@ mod tests {
             let mut app = init_service(
                 App::new()
                     .data(DropData(data.clone()))
-                    .service(web::resource("/test").to(HttpResponse::Ok)),
+                    .service(web::resource("/test").to(|| HttpResponse::Ok())),
             )
             .await;
             let req = TestRequest::with_uri("/test").to_request();

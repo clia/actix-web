@@ -1,6 +1,5 @@
 //! Websocket integration
 use std::collections::VecDeque;
-use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -24,8 +23,8 @@ use actix_web::error::{Error, PayloadError};
 use actix_web::http::{header, Method, StatusCode};
 use actix_web::{HttpRequest, HttpResponse};
 use bytes::{Bytes, BytesMut};
-use futures_channel::oneshot::Sender;
-use futures_core::Stream;
+use futures::channel::oneshot::Sender;
+use futures::{Future, Stream};
 
 /// Do websocket handshake and start ws actor.
 pub fn start<A, T>(actor: A, req: &HttpRequest, stream: T) -> Result<HttpResponse, Error>

@@ -53,23 +53,17 @@ where
         + 'static,
 {
     pub(crate) fn new(connector: T, config: ConnectorConfig) -> Self {
-        let connector_rc = Rc::new(RefCell::new(connector));
-        let inner_rc = Rc::new(RefCell::new(Inner {
-            config,
-            acquired: 0,
-            waiters: Slab::new(),
-            waiters_queue: IndexSet::new(),
-            available: FxHashMap::default(),
-            waker: LocalWaker::new(),
-        }));
-
-        // start support future
-        actix_rt::spawn(ConnectorPoolSupport {
-            connector: Rc::clone(&connector_rc),
-            inner: Rc::clone(&inner_rc),
-        });
-
-        ConnectionPool(connector_rc, inner_rc)
+        ConnectionPool(
+            Rc::new(RefCell::new(connector)),
+            Rc::new(RefCell::new(Inner {
+                config,
+                acquired: 0,
+                waiters: Slab::new(),
+                waiters_queue: IndexSet::new(),
+                available: FxHashMap::default(),
+                waker: LocalWaker::new(),
+            })),
+        )
     }
 }
 
@@ -79,13 +73,6 @@ where
 {
     fn clone(&self) -> Self {
         ConnectionPool(self.0.clone(), self.1.clone())
-    }
-}
-
-impl<T, Io> Drop for ConnectionPool<T, Io> {
-    fn drop(&mut self) {
-        // wake up the ConnectorPoolSupport when dropping so it can exit properly.
-        self.1.borrow().waker.wake();
     }
 }
 
@@ -105,6 +92,12 @@ where
     }
 
     fn call(&mut self, req: Connect) -> Self::Future {
+        // start support future
+        actix_rt::spawn(ConnectorPoolSupport {
+            connector: self.0.clone(),
+            inner: self.1.clone(),
+        });
+
         let mut connector = self.0.clone();
         let inner = self.1.clone();
 
@@ -112,18 +105,18 @@ where
             let key = if let Some(authority) = req.uri.authority() {
                 authority.clone().into()
             } else {
-                return Err(ConnectError::Unresolved);
+                return Err(ConnectError::Unresolverd);
             };
 
             // acquire connection
             match poll_fn(|cx| Poll::Ready(inner.borrow_mut().acquire(&key, cx))).await {
                 Acquire::Acquired(io, created) => {
                     // use existing connection
-                    Ok(IoConnection::new(
+                    return Ok(IoConnection::new(
                         io,
                         created,
                         Some(Acquired(key, Some(inner))),
-                    ))
+                    ));
                 }
                 Acquire::Available => {
                     // open tcp connection
@@ -202,7 +195,7 @@ where
         if let Some(i) = self.inner.take() {
             let mut inner = i.as_ref().borrow_mut();
             inner.release_waiter(&self.key, self.token);
-            inner.check_availability();
+            inner.check_availibility();
         }
     }
 }
@@ -239,7 +232,7 @@ where
         if let Some(i) = self.inner.take() {
             let mut inner = i.as_ref().borrow_mut();
             inner.release();
-            inner.check_availability();
+            inner.check_availibility();
         }
     }
 }
@@ -366,7 +359,7 @@ where
                 created,
                 used: Instant::now(),
             });
-        self.check_availability();
+        self.check_availibility();
     }
 
     fn release_close(&mut self, io: ConnectionType<Io>) {
@@ -376,10 +369,10 @@ where
                 actix_rt::spawn(CloseConnection::new(io, timeout))
             }
         }
-        self.check_availability();
+        self.check_availibility();
     }
 
-    fn check_availability(&self) {
+    fn check_availibility(&self) {
         if !self.waiters_queue.is_empty() && self.acquired < self.config.limit {
             self.waker.wake();
         }
@@ -442,13 +435,7 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
 
-        if Rc::strong_count(this.inner) == 1 {
-            // If we are last copy of Inner<Io> it means the ConnectionPool is already gone
-            // and we are safe to exit.
-            return Poll::Ready(());
-        }
-
-        let mut inner = this.inner.borrow_mut();
+        let mut inner = this.inner.as_ref().borrow_mut();
         inner.waker.register(cx.waker());
 
         // check waiters
@@ -547,7 +534,7 @@ where
         if let Some(inner) = self.project().inner.take() {
             let mut inner = inner.as_ref().borrow_mut();
             inner.release();
-            inner.check_availability();
+            inner.check_availibility();
         }
     }
 }

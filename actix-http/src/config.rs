@@ -17,7 +17,7 @@ const DATE_VALUE_LENGTH: usize = 29;
 pub enum KeepAlive {
     /// Keep alive in seconds
     Timeout(usize),
-    /// Rely on OS to shutdown tcp connection
+    /// Relay on OS to shutdown tcp connection
     Os,
     /// Disabled
     Disabled,
@@ -114,7 +114,7 @@ impl ServiceConfig {
     }
 
     #[inline]
-    /// Return state of connection keep-alive functionality
+    /// Return state of connection keep-alive funcitonality
     pub fn keep_alive_enabled(&self) -> bool {
         self.0.ka_enabled
     }
@@ -209,13 +209,12 @@ impl Date {
         date.update();
         date
     }
-
     fn update(&mut self) {
         self.pos = 0;
         write!(
             self,
             "{}",
-            OffsetDateTime::now_utc().format("%a, %d %b %Y %H:%M:%S GMT")
+            OffsetDateTime::now().format("%a, %d %b %Y %H:%M:%S GMT")
         )
         .unwrap();
     }

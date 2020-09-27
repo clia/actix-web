@@ -1,6 +1,6 @@
 //! Multipart payload support
 use actix_web::{dev::Payload, Error, FromRequest, HttpRequest};
-use futures_util::future::{ok, Ready};
+use futures::future::{ok, Ready};
 
 use crate::server::Multipart;
 
@@ -11,7 +11,7 @@ use crate::server::Multipart;
 /// ## Server example
 ///
 /// ```rust
-/// use futures_util::stream::{Stream, StreamExt};
+/// use futures::{Stream, StreamExt};
 /// use actix_web::{web, HttpResponse, Error};
 /// use actix_multipart as mp;
 ///
@@ -36,9 +36,6 @@ impl FromRequest for Multipart {
 
     #[inline]
     fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        ok(match Multipart::boundary(req.headers()) {
-            Ok(boundary) => Multipart::from_boundary(boundary, payload.take()),
-            Err(err) => Multipart::from_error(err),
-        })
+        ok(Multipart::new(req.headers(), payload.take()))
     }
 }

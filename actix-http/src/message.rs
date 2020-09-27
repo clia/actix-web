@@ -99,13 +99,13 @@ impl RequestHead {
     }
 
     /// Is to uppercase headers with Camel-Case.
-    /// Default is `false`
+    /// Befault is `false`
     #[inline]
     pub fn camel_case_headers(&self) -> bool {
         self.flags.contains(Flags::CAMEL_CASE)
     }
 
-    /// Set `true` to send headers which are formatted as Camel-Case.
+    /// Set `true` to send headers which are uppercased with Camel-Case.
     #[inline]
     pub fn set_camel_case_headers(&mut self, val: bool) {
         if val {
