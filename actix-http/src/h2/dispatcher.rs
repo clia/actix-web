@@ -184,7 +184,7 @@ where
         size: &mut BodySize,
     ) -> http::Response<()> {
         let mut has_date = false;
-        let mut skip_len = size != &BodySize::Stream;
+        let mut skip_len = size == &BodySize::Stream;
 
         let mut res = http::Response::new(());
         *res.status_mut() = head.status;

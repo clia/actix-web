@@ -58,7 +58,7 @@ pub(crate) trait MessageType: Sized {
         config: &ServiceConfig,
     ) -> io::Result<()> {
         let chunked = self.chunked();
-        let mut skip_len = length != BodySize::Stream;
+        let mut skip_len = length == BodySize::Stream;
         let camel_case = self.camel_case();
 
         // Content length
@@ -83,7 +83,7 @@ pub(crate) trait MessageType: Sized {
                         dst.put_slice(b"\r\ntransfer-encoding: chunked\r\n")
                     }
                 } else {
-                    skip_len = false;
+                    skip_len = true;
                     dst.put_slice(b"\r\n");
                 }
             }
