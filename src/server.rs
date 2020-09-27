@@ -575,17 +575,19 @@ fn create_tcp_listener(
 /// Configure `SslAcceptorBuilder` with custom server flags.
 fn openssl_acceptor(mut builder: SslAcceptorBuilder) -> io::Result<SslAcceptor> {
     builder.set_alpn_select_callback(|_, protos| {
-        const H2: &[u8] = b"\x02h2";
+        // const H2: &[u8] = b"\x02h2";
         const H11: &[u8] = b"\x08http/1.1";
-        if protos.windows(3).any(|window| window == H2) {
-            Ok(b"h2")
-        } else if protos.windows(9).any(|window| window == H11) {
+        // if protos.windows(3).any(|window| window == H2) {
+        //     Ok(b"h2")
+        // } else 
+        if protos.windows(9).any(|window| window == H11) {
             Ok(b"http/1.1")
         } else {
             Err(AlpnError::NOACK)
         }
     });
-    builder.set_alpn_protos(b"\x08http/1.1\x02h2")?;
+    // builder.set_alpn_protos(b"\x08http/1.1\x02h2")?;
+    builder.set_alpn_protos(b"\x08http/1.1")?;
 
     Ok(builder.build())
 }
