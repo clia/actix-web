@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::task::{Context, Poll};
 
 use actix_service::{Service, Transform};
-use futures::future::{ok, FutureExt, LocalBoxFuture, Ready};
+use futures_util::future::{ok, FutureExt, LocalBoxFuture, Ready};
 use fxhash::FxHashMap;
 
 use crate::dev::{ServiceRequest, ServiceResponse};
@@ -147,13 +147,14 @@ where
 #[cfg(test)]
 mod tests {
     use actix_service::IntoService;
-    use futures::future::ok;
+    use futures_util::future::ok;
 
     use super::*;
     use crate::http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
     use crate::test::{self, TestRequest};
     use crate::HttpResponse;
 
+    #[allow(clippy::unnecessary_wraps)]
     fn render_500<B>(mut res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>> {
         res.response_mut()
             .headers_mut()

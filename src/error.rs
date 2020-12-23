@@ -1,4 +1,5 @@
 //! Error and Result module
+
 pub use actix_http::error::*;
 use derive_more::{Display, From};
 use serde_json::error::Error as JsonError;
@@ -20,6 +21,8 @@ pub enum UrlGenerationError {
     #[display(fmt = "{}", _0)]
     ParseError(UrlParseError),
 }
+
+impl std::error::Error for UrlGenerationError {}
 
 /// `InternalServerError` for `UrlGeneratorError`
 impl ResponseError for UrlGenerationError {}
@@ -51,6 +54,8 @@ pub enum UrlencodedError {
     Payload(PayloadError),
 }
 
+impl std::error::Error for UrlencodedError {}
+
 /// Return `BadRequest` for `UrlencodedError`
 impl ResponseError for UrlencodedError {
     fn status_code(&self) -> StatusCode {
@@ -79,6 +84,8 @@ pub enum JsonPayloadError {
     Payload(PayloadError),
 }
 
+impl std::error::Error for JsonPayloadError {}
+
 /// Return `BadRequest` for `JsonPayloadError`
 impl ResponseError for JsonPayloadError {
     fn error_response(&self) -> HttpResponse {
@@ -99,6 +106,8 @@ pub enum PathError {
     Deserialize(serde::de::value::Error),
 }
 
+impl std::error::Error for PathError {}
+
 /// Return `BadRequest` for `PathError`
 impl ResponseError for PathError {
     fn status_code(&self) -> StatusCode {
@@ -113,6 +122,8 @@ pub enum QueryPayloadError {
     #[display(fmt = "Query deserialize error: {}", _0)]
     Deserialize(serde::de::value::Error),
 }
+
+impl std::error::Error for QueryPayloadError {}
 
 /// Return `BadRequest` for `QueryPayloadError`
 impl ResponseError for QueryPayloadError {
@@ -138,6 +149,8 @@ pub enum ReadlinesError {
     #[display(fmt = "Content-type error")]
     ContentTypeError(ContentTypeError),
 }
+
+impl std::error::Error for ReadlinesError {}
 
 /// Return `BadRequest` for `ReadlinesError`
 impl ResponseError for ReadlinesError {

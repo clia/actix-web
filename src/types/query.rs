@@ -4,9 +4,8 @@ use std::sync::Arc;
 use std::{fmt, ops};
 
 use actix_http::error::Error;
-use futures::future::{err, ok, Ready};
+use futures_util::future::{err, ok, Ready};
 use serde::de;
-use serde_urlencoded;
 
 use crate::dev::Payload;
 use crate::error::QueryPayloadError;
@@ -19,7 +18,7 @@ use crate::request::HttpRequest;
 /// be decoded into any type which depends upon data ordering e.g. tuples or tuple-structs.
 /// Attempts to do so will *fail at runtime*.
 ///
-/// [**QueryConfig**](struct.QueryConfig.html) allows to configure extraction process.
+/// [**QueryConfig**](QueryConfig) allows to configure extraction process.
 ///
 /// ## Example
 ///
@@ -40,7 +39,7 @@ use crate::request::HttpRequest;
 /// }
 ///
 /// // Use `Query` extractor for query information (and destructure it within the signature).
-/// // This handler gets called only if the request's query string contains a `username` field.
+/// // This handler gets called only if the request's query string contains `id` and `response_type` fields.
 /// // The correct request for this handler would be `/index.html?id=64&response_type=Code"`.
 /// async fn index(web::Query(info): web::Query<AuthRequest>) -> String {
 ///     format!("Authorization request for client with id={} and type={:?}!", info.id, info.response_type)
@@ -118,7 +117,7 @@ impl<T: fmt::Display> fmt::Display for Query<T> {
 /// }
 ///
 /// // Use `Query` extractor for query information.
-/// // This handler get called only if request's query contains `username` field
+/// // This handler get called only if request's query contains `id` and `response_type` fields.
 /// // The correct request for this handler would be `/index.html?id=64&response_type=Code"`
 /// async fn index(info: web::Query<AuthRequest>) -> String {
 ///     format!("Authorization request for client with id={} and type={:?}!", info.id, info.response_type)
@@ -189,12 +188,12 @@ where
 ///     let app = App::new().service(
 ///         web::resource("/index.html").app_data(
 ///             // change query extractor configuration
-///             web::Query::<Info>::configure(|cfg| {
-///                 cfg.error_handler(|err, req| {  // <- create custom error response
+///             web::QueryConfig::default()
+///                 .error_handler(|err, req| {  // <- create custom error response
 ///                     error::InternalError::from_response(
 ///                         err, HttpResponse::Conflict().finish()).into()
 ///                 })
-///             }))
+///             )
 ///             .route(web::post().to(index))
 ///     );
 /// }

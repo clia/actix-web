@@ -1,17 +1,18 @@
 //! Json extractor/responder
 
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::{fmt, ops};
 
 use bytes::BytesMut;
-use futures::future::{err, ok, FutureExt, LocalBoxFuture, Ready};
-use futures::StreamExt;
+use futures_util::future::{ready, Ready};
+use futures_util::ready;
+use futures_util::stream::Stream;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use serde_json;
 
 use actix_http::http::{header::CONTENT_LENGTH, StatusCode};
 use actix_http::{HttpMessage, Payload, Response};
@@ -21,7 +22,7 @@ use crate::dev::Decompress;
 use crate::error::{Error, JsonPayloadError};
 use crate::extract::FromRequest;
 use crate::request::HttpRequest;
-use crate::responder::Responder;
+use crate::{responder::Responder, web};
 
 /// Json helper
 ///
@@ -32,7 +33,7 @@ use crate::responder::Responder;
 /// To extract typed information from request's body, the type `T` must
 /// implement the `Deserialize` trait from *serde*.
 ///
-/// [**JsonConfig**](struct.JsonConfig.html) allows to configure extraction
+/// [**JsonConfig**](JsonConfig) allows to configure extraction
 /// process.
 ///
 /// ## Example
@@ -128,12 +129,12 @@ impl<T: Serialize> Responder for Json<T> {
     fn respond_to(self, _: &HttpRequest) -> Self::Future {
         let body = match serde_json::to_string(&self.0) {
             Ok(body) => body,
-            Err(e) => return err(e.into()),
+            Err(e) => return ready(Err(e.into())),
         };
 
-        ok(Response::build(StatusCode::OK)
+        ready(Ok(Response::build(StatusCode::OK)
             .content_type("application/json")
-            .body(body))
+            .body(body)))
     }
 }
 
@@ -143,7 +144,7 @@ impl<T: Serialize> Responder for Json<T> {
 /// To extract typed information from request's body, the type `T` must
 /// implement the `Deserialize` trait from *serde*.
 ///
-/// [**JsonConfig**](struct.JsonConfig.html) allows to configure extraction
+/// [**JsonConfig**](JsonConfig) allows to configure extraction
 /// process.
 ///
 /// ## Example
@@ -174,39 +175,70 @@ where
     T: DeserializeOwned + 'static,
 {
     type Error = Error;
-    type Future = LocalBoxFuture<'static, Result<Self, Error>>;
+    type Future = JsonExtractFut<T>;
     type Config = JsonConfig;
 
     #[inline]
     fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        let req2 = req.clone();
-        let (limit, err, ctype) = req
-            .app_data::<Self::Config>()
-            .map(|c| (c.limit, c.ehandler.clone(), c.content_type.clone()))
-            .unwrap_or((32768, None, None));
+        let config = JsonConfig::from_req(req);
 
-        JsonBody::new(req, payload, ctype)
-            .limit(limit)
-            .map(move |res| match res {
-                Err(e) => {
-                    log::debug!(
-                        "Failed to deserialize Json from payload. \
+        let limit = config.limit;
+        let ctype = config.content_type.clone();
+        let err_handler = config.err_handler.clone();
+
+        JsonExtractFut {
+            req: Some(req.clone()),
+            fut: JsonBody::new(req, payload, ctype).limit(limit),
+            err_handler,
+        }
+    }
+}
+
+type JsonErrorHandler =
+    Option<Arc<dyn Fn(JsonPayloadError, &HttpRequest) -> Error + Send + Sync>>;
+
+pub struct JsonExtractFut<T> {
+    req: Option<HttpRequest>,
+    fut: JsonBody<T>,
+    err_handler: JsonErrorHandler,
+}
+
+impl<T> Future for JsonExtractFut<T>
+where
+    T: DeserializeOwned + 'static,
+{
+    type Output = Result<Json<T>, Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        let res = ready!(Pin::new(&mut this.fut).poll(cx));
+
+        let res = match res {
+            Err(e) => {
+                let req = this.req.take().unwrap();
+                log::debug!(
+                    "Failed to deserialize Json from payload. \
                          Request path: {}",
-                        req2.path()
-                    );
-                    if let Some(err) = err {
-                        Err((*err)(e, &req2))
-                    } else {
-                        Err(e.into())
-                    }
+                    req.path()
+                );
+
+                if let Some(err) = this.err_handler.as_ref() {
+                    Err((*err)(e, &req))
+                } else {
+                    Err(e.into())
                 }
-                Ok(data) => Ok(Json(data)),
-            })
-            .boxed_local()
+            }
+            Ok(data) => Ok(Json(data)),
+        };
+
+        Poll::Ready(res)
     }
 }
 
 /// Json extractor configuration
+///
+/// # Example
 ///
 /// ```rust
 /// use actix_web::{error, web, App, FromRequest, HttpResponse};
@@ -226,25 +258,26 @@ where
 ///     let app = App::new().service(
 ///         web::resource("/index.html")
 ///             .app_data(
-///                 // change json extractor configuration
-///                 web::Json::<Info>::configure(|cfg| {
-///                     cfg.limit(4096)
-///                        .content_type(|mime| {  // <- accept text/plain content type
-///                            mime.type_() == mime::TEXT && mime.subtype() == mime::PLAIN
-///                        })
-///                        .error_handler(|err, req| {  // <- create custom error response
-///                           error::InternalError::from_response(
-///                               err, HttpResponse::Conflict().finish()).into()
-///                        })
-///             }))
+///                 // Json extractor configuration for this resource.
+///                 web::JsonConfig::default()
+///                     .limit(4096) // Limit request payload size
+///                     .content_type(|mime| {  // <- accept text/plain content type
+///                         mime.type_() == mime::TEXT && mime.subtype() == mime::PLAIN
+///                     })
+///                     .error_handler(|err, req| {  // <- create custom error response
+///                        error::InternalError::from_response(
+///                            err, HttpResponse::Conflict().finish()).into()
+///                     })
+///             )
 ///             .route(web::post().to(index))
 ///     );
 /// }
 /// ```
+///
 #[derive(Clone)]
 pub struct JsonConfig {
     limit: usize,
-    ehandler: Option<Arc<dyn Fn(JsonPayloadError, &HttpRequest) -> Error + Send + Sync>>,
+    err_handler: JsonErrorHandler,
     content_type: Option<Arc<dyn Fn(mime::Mime) -> bool + Send + Sync>>,
 }
 
@@ -260,7 +293,7 @@ impl JsonConfig {
     where
         F: Fn(JsonPayloadError, &HttpRequest) -> Error + Send + Sync + 'static,
     {
-        self.ehandler = Some(Arc::new(f));
+        self.err_handler = Some(Arc::new(f));
         self
     }
 
@@ -272,15 +305,26 @@ impl JsonConfig {
         self.content_type = Some(Arc::new(predicate));
         self
     }
+
+    /// Extract payload config from app data. Check both `T` and `Data<T>`, in that order, and fall
+    /// back to the default payload config.
+    fn from_req(req: &HttpRequest) -> &Self {
+        req.app_data::<Self>()
+            .or_else(|| req.app_data::<web::Data<Self>>().map(|d| d.as_ref()))
+            .unwrap_or(&DEFAULT_CONFIG)
+    }
 }
+
+// Allow shared refs to default.
+const DEFAULT_CONFIG: JsonConfig = JsonConfig {
+    limit: 32_768, // 2^15 bytes, (~32kB)
+    err_handler: None,
+    content_type: None,
+};
 
 impl Default for JsonConfig {
     fn default() -> Self {
-        JsonConfig {
-            limit: 32768,
-            ehandler: None,
-            content_type: None,
-        }
+        DEFAULT_CONFIG.clone()
     }
 }
 
@@ -290,24 +334,30 @@ impl Default for JsonConfig {
 /// Returns error:
 ///
 /// * content type is not `application/json`
-///   (unless specified in [`JsonConfig`](struct.JsonConfig.html))
+///   (unless specified in [`JsonConfig`])
 /// * content length is greater than 256k
-pub struct JsonBody<U> {
-    limit: usize,
-    length: Option<usize>,
-    #[cfg(feature = "compress")]
-    stream: Option<Decompress<Payload>>,
-    #[cfg(not(feature = "compress"))]
-    stream: Option<Payload>,
-    err: Option<JsonPayloadError>,
-    fut: Option<LocalBoxFuture<'static, Result<U, JsonPayloadError>>>,
+pub enum JsonBody<U> {
+    Error(Option<JsonPayloadError>),
+    Body {
+        limit: usize,
+        length: Option<usize>,
+        #[cfg(feature = "compress")]
+        payload: Decompress<Payload>,
+        #[cfg(not(feature = "compress"))]
+        payload: Payload,
+        buf: BytesMut,
+        _res: PhantomData<U>,
+    },
 }
+
+impl<U> Unpin for JsonBody<U> {}
 
 impl<U> JsonBody<U>
 where
     U: DeserializeOwned + 'static,
 {
     /// Create `JsonBody` for request.
+    #[allow(clippy::borrow_interior_mutable_const)]
     pub fn new(
         req: &HttpRequest,
         payload: &mut Payload,
@@ -323,39 +373,58 @@ where
         };
 
         if !json {
-            return JsonBody {
-                limit: 262_144,
-                length: None,
-                stream: None,
-                fut: None,
-                err: Some(JsonPayloadError::ContentType),
-            };
+            return JsonBody::Error(Some(JsonPayloadError::ContentType));
         }
 
-        let len = req
+        let length = req
             .headers()
             .get(&CONTENT_LENGTH)
             .and_then(|l| l.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok());
+
+        // Notice the content_length is not checked against limit of json config here.
+        // As the internal usage always call JsonBody::limit after JsonBody::new.
+        // And limit check to return an error variant of JsonBody happens there.
 
         #[cfg(feature = "compress")]
         let payload = Decompress::from_headers(payload.take(), req.headers());
         #[cfg(not(feature = "compress"))]
         let payload = payload.take();
 
-        JsonBody {
+        JsonBody::Body {
             limit: 262_144,
-            length: len,
-            stream: Some(payload),
-            fut: None,
-            err: None,
+            length,
+            payload,
+            buf: BytesMut::with_capacity(8192),
+            _res: PhantomData,
         }
     }
 
     /// Change max size of payload. By default max size is 256Kb
-    pub fn limit(mut self, limit: usize) -> Self {
-        self.limit = limit;
-        self
+    pub fn limit(self, limit: usize) -> Self {
+        match self {
+            JsonBody::Body {
+                length,
+                payload,
+                buf,
+                ..
+            } => {
+                if let Some(len) = length {
+                    if len > limit {
+                        return JsonBody::Error(Some(JsonPayloadError::Overflow));
+                    }
+                }
+
+                JsonBody::Body {
+                    limit,
+                    length,
+                    payload,
+                    buf,
+                    _res: PhantomData,
+                }
+            }
+            JsonBody::Error(e) => JsonBody::Error(e),
+        }
     }
 }
 
@@ -365,41 +434,34 @@ where
 {
     type Output = Result<U, JsonPayloadError>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Some(ref mut fut) = self.fut {
-            return Pin::new(fut).poll(cx);
-        }
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
 
-        if let Some(err) = self.err.take() {
-            return Poll::Ready(Err(err));
-        }
-
-        let limit = self.limit;
-        if let Some(len) = self.length.take() {
-            if len > limit {
-                return Poll::Ready(Err(JsonPayloadError::Overflow));
-            }
-        }
-        let mut stream = self.stream.take().unwrap();
-
-        self.fut = Some(
-            async move {
-                let mut body = BytesMut::with_capacity(8192);
-
-                while let Some(item) = stream.next().await {
-                    let chunk = item?;
-                    if (body.len() + chunk.len()) > limit {
-                        return Err(JsonPayloadError::Overflow);
-                    } else {
-                        body.extend_from_slice(&chunk);
+        match this {
+            JsonBody::Body {
+                limit,
+                buf,
+                payload,
+                ..
+            } => loop {
+                let res = ready!(Pin::new(&mut *payload).poll_next(cx));
+                match res {
+                    Some(chunk) => {
+                        let chunk = chunk?;
+                        if (buf.len() + chunk.len()) > *limit {
+                            return Poll::Ready(Err(JsonPayloadError::Overflow));
+                        } else {
+                            buf.extend_from_slice(&chunk);
+                        }
+                    }
+                    None => {
+                        let json = serde_json::from_slice::<U>(&buf)?;
+                        return Poll::Ready(Ok(json));
                     }
                 }
-                Ok(serde_json::from_slice::<U>(&body)?)
-            }
-            .boxed_local(),
-        );
-
-        self.poll(cx)
+            },
+            JsonBody::Error(e) => Poll::Ready(Err(e.take().unwrap())),
+        }
     }
 }
 
@@ -410,7 +472,7 @@ mod tests {
 
     use super::*;
     use crate::error::InternalError;
-    use crate::http::header;
+    use crate::http::header::{self, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE};
     use crate::test::{load_stream, TestRequest};
     use crate::HttpResponse;
 
@@ -421,14 +483,10 @@ mod tests {
 
     fn json_eq(err: JsonPayloadError, other: JsonPayloadError) -> bool {
         match err {
-            JsonPayloadError::Overflow => match other {
-                JsonPayloadError::Overflow => true,
-                _ => false,
-            },
-            JsonPayloadError::ContentType => match other {
-                JsonPayloadError::ContentType => true,
-                _ => false,
-            },
+            JsonPayloadError::Overflow => matches!(other, JsonPayloadError::Overflow),
+            JsonPayloadError::ContentType => {
+                matches!(other, JsonPayloadError::ContentType)
+            }
             _ => false,
         }
     }
@@ -474,7 +532,7 @@ mod tests {
             .to_http_parts();
 
         let s = Json::<MyObject>::from_request(&req, &mut pl).await;
-        let mut resp = Response::from_error(s.err().unwrap().into());
+        let mut resp = Response::from_error(s.err().unwrap());
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
         let body = load_stream(resp.take_body()).await.unwrap();
@@ -650,5 +708,21 @@ mod tests {
 
         let s = Json::<MyObject>::from_request(&req, &mut pl).await;
         assert!(s.is_err())
+    }
+
+    #[actix_rt::test]
+    async fn test_with_config_in_data_wrapper() {
+        let (req, mut pl) = TestRequest::default()
+            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+            .header(CONTENT_LENGTH, HeaderValue::from_static("16"))
+            .set_payload(Bytes::from_static(b"{\"name\": \"test\"}"))
+            .app_data(web::Data::new(JsonConfig::default().limit(10)))
+            .to_http_parts();
+
+        let s = Json::<MyObject>::from_request(&req, &mut pl).await;
+        assert!(s.is_err());
+
+        let err_str = s.err().unwrap().to_string();
+        assert!(err_str.contains("Json payload size is bigger than allowed"));
     }
 }

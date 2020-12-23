@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::io::{Read, Write};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -11,11 +12,12 @@ use bytes::Bytes;
 use flate2::read::GzDecoder;
 use flate2::write::{GzEncoder, ZlibDecoder, ZlibEncoder};
 use flate2::Compression;
-use futures::{ready, Future};
+use futures_util::ready;
 use rand::{distributions::Alphanumeric, Rng};
 
 use actix_web::dev::BodyEncoding;
-use actix_web::middleware::Compress;
+use actix_web::middleware::normalize::TrailingSlash;
+use actix_web::middleware::{Compress, NormalizePath};
 use actix_web::{dev, test, web, App, Error, HttpResponse};
 
 const STR: &str = "Hello World Hello World Hello World Hello World Hello World \
@@ -56,7 +58,7 @@ impl TestBody {
     }
 }
 
-impl futures::Stream for TestBody {
+impl futures_core::stream::Stream for TestBody {
     type Item = Result<Bytes, Error>;
 
     fn poll_next(
@@ -246,6 +248,7 @@ async fn test_body_gzip_large_random() {
     let data = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(70_000)
+        .map(char::from)
         .collect::<String>();
     let srv_data = data.clone();
 
@@ -348,9 +351,10 @@ async fn test_body_br_streaming() {
 #[actix_rt::test]
 async fn test_head_binary() {
     let srv = test::start_with(test::config().h1(), || {
-        App::new().service(web::resource("/").route(
-            web::head().to(move || HttpResponse::Ok().content_length(100).body(STR)),
-        ))
+        App::new().service(
+            web::resource("/")
+                .route(web::head().to(move || HttpResponse::Ok().body(STR))),
+        )
     });
 
     let mut response = srv.head("/").send().await.unwrap();
@@ -371,8 +375,7 @@ async fn test_no_chunking() {
     let srv = test::start_with(test::config().h1(), || {
         App::new().service(web::resource("/").route(web::to(move || {
             HttpResponse::Ok()
-                .no_chunking()
-                .content_length(STR.len() as u64)
+                .no_chunking(STR.len() as u64)
                 .streaming(TestBody::new(Bytes::from_static(STR.as_ref()), 24))
         })))
     });
@@ -527,6 +530,7 @@ async fn test_reading_gzip_encoding_large_random() {
     let data = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(60_000)
+        .map(char::from)
         .collect::<String>();
 
     let srv = test::start_with(test::config().h1(), || {
@@ -612,6 +616,7 @@ async fn test_reading_deflate_encoding_large_random() {
     let data = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(160_000)
+        .map(char::from)
         .collect::<String>();
 
     let srv = test::start_with(test::config().h1(), || {
@@ -670,6 +675,7 @@ async fn test_brotli_encoding_large() {
     let data = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(320_000)
+        .map(char::from)
         .collect::<String>();
 
     let srv = test::start_with(test::config().h1(), || {
@@ -751,6 +757,7 @@ async fn test_reading_deflate_encoding_large_random_rustls() {
     let data = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(160_000)
+        .map(char::from)
         .collect::<String>();
 
     // load ssl keys
@@ -850,7 +857,7 @@ async fn test_slow_request() {
     use std::net;
 
     let srv = test::start_with(test::config().client_timeout(200), || {
-        App::new().service(web::resource("/").route(web::to(|| HttpResponse::Ok())))
+        App::new().service(web::resource("/").route(web::to(HttpResponse::Ok)))
     });
 
     let mut stream = net::TcpStream::connect(srv.addr()).unwrap();
@@ -863,6 +870,20 @@ async fn test_slow_request() {
     let mut data = String::new();
     let _ = stream.read_to_string(&mut data);
     assert!(data.starts_with("HTTP/1.1 408 Request Timeout"));
+}
+
+#[actix_rt::test]
+async fn test_normalize() {
+    let srv = test::start_with(test::config().h1(), || {
+        App::new()
+            .wrap(NormalizePath::new(TrailingSlash::Trim))
+            .service(
+                web::resource("/one").route(web::to(|| HttpResponse::Ok().finish())),
+            )
+    });
+
+    let response = srv.get("/one/").send().await.unwrap();
+    assert!(response.status().is_success());
 }
 
 // #[cfg(feature = "openssl")]

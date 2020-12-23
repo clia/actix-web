@@ -58,6 +58,8 @@ pub enum ProtocolError {
     Io(io::Error),
 }
 
+impl std::error::Error for ProtocolError {}
+
 impl ResponseError for ProtocolError {}
 
 /// Websocket handshake errors
@@ -108,7 +110,7 @@ impl ResponseError for HandshakeError {
     }
 }
 
-/// Verify `WebSocket` handshake request and create handshake reponse.
+/// Verify `WebSocket` handshake request and create handshake response.
 // /// `protocols` is a sequence of known protocols. On successful handshake,
 // /// the returned response headers contain the first protocol in this list
 // /// which the server also knows.
@@ -168,7 +170,7 @@ pub fn verify_handshake(req: &RequestHead) -> Result<(), HandshakeError> {
     Ok(())
 }
 
-/// Create websocket's handshake response
+/// Create websocket handshake response
 ///
 /// This function returns handshake `Response`, ready to send to peer.
 pub fn handshake_response(req: &RequestHead) -> ResponseBuilder {
@@ -195,13 +197,13 @@ mod tests {
         let req = TestRequest::default().method(Method::POST).finish();
         assert_eq!(
             HandshakeError::GetMethodRequired,
-            verify_handshake(req.head()).err().unwrap()
+            verify_handshake(req.head()).unwrap_err(),
         );
 
         let req = TestRequest::default().finish();
         assert_eq!(
             HandshakeError::NoWebsocketUpgrade,
-            verify_handshake(req.head()).err().unwrap()
+            verify_handshake(req.head()).unwrap_err(),
         );
 
         let req = TestRequest::default()
@@ -209,7 +211,7 @@ mod tests {
             .finish();
         assert_eq!(
             HandshakeError::NoWebsocketUpgrade,
-            verify_handshake(req.head()).err().unwrap()
+            verify_handshake(req.head()).unwrap_err(),
         );
 
         let req = TestRequest::default()
@@ -220,7 +222,7 @@ mod tests {
             .finish();
         assert_eq!(
             HandshakeError::NoConnectionUpgrade,
-            verify_handshake(req.head()).err().unwrap()
+            verify_handshake(req.head()).unwrap_err(),
         );
 
         let req = TestRequest::default()
@@ -235,7 +237,7 @@ mod tests {
             .finish();
         assert_eq!(
             HandshakeError::NoVersionHeader,
-            verify_handshake(req.head()).err().unwrap()
+            verify_handshake(req.head()).unwrap_err(),
         );
 
         let req = TestRequest::default()
@@ -254,7 +256,7 @@ mod tests {
             .finish();
         assert_eq!(
             HandshakeError::UnsupportedVersion,
-            verify_handshake(req.head()).err().unwrap()
+            verify_handshake(req.head()).unwrap_err(),
         );
 
         let req = TestRequest::default()
@@ -273,7 +275,7 @@ mod tests {
             .finish();
         assert_eq!(
             HandshakeError::BadWebsocketKey,
-            verify_handshake(req.head()).err().unwrap()
+            verify_handshake(req.head()).unwrap_err(),
         );
 
         let req = TestRequest::default()

@@ -7,24 +7,28 @@ use std::task::{Context, Poll};
 use actix_http::error::{Error, ErrorBadRequest, PayloadError};
 use actix_http::HttpMessage;
 use bytes::{Bytes, BytesMut};
-use encoding_rs::UTF_8;
-use futures::future::{err, ok, Either, FutureExt, LocalBoxFuture, Ready};
-use futures::{Stream, StreamExt};
+use encoding_rs::{Encoding, UTF_8};
+use futures_core::stream::Stream;
+use futures_util::{
+    future::{err, ok, Either, ErrInto, Ready, TryFutureExt as _},
+    ready,
+};
 use mime::Mime;
 
-use crate::dev;
 use crate::extract::FromRequest;
 use crate::http::header;
 use crate::request::HttpRequest;
+use crate::{dev, web};
 
 /// Payload extractor returns request 's payload stream.
 ///
 /// ## Example
 ///
 /// ```rust
-/// use futures::{Future, Stream, StreamExt};
 /// use actix_web::{web, error, App, Error, HttpResponse};
-///
+/// use std::future::Future;
+/// use futures_core::stream::Stream;
+/// use futures_util::StreamExt;
 /// /// extract binary data from request
 /// async fn index(mut body: web::Payload) -> Result<HttpResponse, Error>
 /// {
@@ -70,8 +74,10 @@ impl Stream for Payload {
 /// ## Example
 ///
 /// ```rust
-/// use futures::{Future, Stream, StreamExt};
 /// use actix_web::{web, error, App, Error, HttpResponse};
+/// use std::future::Future;
+/// use futures_core::stream::Stream;
+/// use futures_util::StreamExt;
 ///
 /// /// extract binary data from request
 /// async fn index(mut body: web::Payload) -> Result<HttpResponse, Error>
@@ -107,7 +113,7 @@ impl FromRequest for Payload {
 ///
 /// Loads request's payload and construct Bytes instance.
 ///
-/// [**PayloadConfig**](struct.PayloadConfig.html) allows to configure
+/// [**PayloadConfig**](PayloadConfig) allows to configure
 /// extraction process.
 ///
 /// ## Example
@@ -131,20 +137,12 @@ impl FromRequest for Payload {
 impl FromRequest for Bytes {
     type Config = PayloadConfig;
     type Error = Error;
-    type Future = Either<
-        LocalBoxFuture<'static, Result<Bytes, Error>>,
-        Ready<Result<Bytes, Error>>,
-    >;
+    type Future = Either<ErrInto<HttpMessageBody, Error>, Ready<Result<Bytes, Error>>>;
 
     #[inline]
     fn from_request(req: &HttpRequest, payload: &mut dev::Payload) -> Self::Future {
-        let tmp;
-        let cfg = if let Some(cfg) = req.app_data::<PayloadConfig>() {
-            cfg
-        } else {
-            tmp = PayloadConfig::default();
-            &tmp
-        };
+        // allow both Config and Data<Config>
+        let cfg = PayloadConfig::from_req(req);
 
         if let Err(e) = cfg.check_mimetype(req) {
             return Either::Right(err(e));
@@ -152,7 +150,7 @@ impl FromRequest for Bytes {
 
         let limit = cfg.limit;
         let fut = HttpMessageBody::new(req, payload).limit(limit);
-        Either::Left(async move { Ok(fut.await?) }.boxed_local())
+        Either::Left(fut.err_into())
     }
 }
 
@@ -160,7 +158,7 @@ impl FromRequest for Bytes {
 ///
 /// Text extractor automatically decode body according to the request's charset.
 ///
-/// [**PayloadConfig**](struct.PayloadConfig.html) allows to configure
+/// [**PayloadConfig**](PayloadConfig) allows to configure
 /// extraction process.
 ///
 /// ## Example
@@ -186,20 +184,11 @@ impl FromRequest for Bytes {
 impl FromRequest for String {
     type Config = PayloadConfig;
     type Error = Error;
-    type Future = Either<
-        LocalBoxFuture<'static, Result<String, Error>>,
-        Ready<Result<String, Error>>,
-    >;
+    type Future = Either<StringExtractFut, Ready<Result<String, Error>>>;
 
     #[inline]
     fn from_request(req: &HttpRequest, payload: &mut dev::Payload) -> Self::Future {
-        let tmp;
-        let cfg = if let Some(cfg) = req.app_data::<PayloadConfig>() {
-            cfg
-        } else {
-            tmp = PayloadConfig::default();
-            &tmp
-        };
+        let cfg = PayloadConfig::from_req(req);
 
         // check content-type
         if let Err(e) = cfg.check_mimetype(req) {
@@ -212,28 +201,48 @@ impl FromRequest for String {
             Err(e) => return Either::Right(err(e.into())),
         };
         let limit = cfg.limit;
-        let fut = HttpMessageBody::new(req, payload).limit(limit);
+        let body_fut = HttpMessageBody::new(req, payload).limit(limit);
 
-        Either::Left(
-            async move {
-                let body = fut.await?;
-
-                if encoding == UTF_8 {
-                    Ok(str::from_utf8(body.as_ref())
-                        .map_err(|_| ErrorBadRequest("Can not decode body"))?
-                        .to_owned())
-                } else {
-                    Ok(encoding
-                        .decode_without_bom_handling_and_without_replacement(&body)
-                        .map(|s| s.into_owned())
-                        .ok_or_else(|| ErrorBadRequest("Can not decode body"))?)
-                }
-            }
-            .boxed_local(),
-        )
+        Either::Left(StringExtractFut { body_fut, encoding })
     }
 }
-/// Payload configuration for request's payload.
+
+pub struct StringExtractFut {
+    body_fut: HttpMessageBody,
+    encoding: &'static Encoding,
+}
+
+impl<'a> Future for StringExtractFut {
+    type Output = Result<String, Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let encoding = self.encoding;
+
+        Pin::new(&mut self.body_fut).poll(cx).map(|out| {
+            let body = out?;
+            bytes_to_string(body, encoding)
+        })
+    }
+}
+
+fn bytes_to_string(body: Bytes, encoding: &'static Encoding) -> Result<String, Error> {
+    if encoding == UTF_8 {
+        Ok(str::from_utf8(body.as_ref())
+            .map_err(|_| ErrorBadRequest("Can not decode body"))?
+            .to_owned())
+    } else {
+        Ok(encoding
+            .decode_without_bom_handling_and_without_replacement(&body)
+            .map(|s| s.into_owned())
+            .ok_or_else(|| ErrorBadRequest("Can not decode body"))?)
+    }
+}
+
+/// Configuration for request's payload.
+///
+/// Applies to the built-in `Bytes` and `String` extractors. Note that the Payload extractor does
+/// not automatically check conformance with this configuration to allow more flexibility when
+/// building extractors on top of `Payload`.
 #[derive(Clone)]
 pub struct PayloadConfig {
     limit: usize,
@@ -243,9 +252,10 @@ pub struct PayloadConfig {
 impl PayloadConfig {
     /// Create `PayloadConfig` instance and set max size of payload.
     pub fn new(limit: usize) -> Self {
-        let mut cfg = Self::default();
-        cfg.limit = limit;
-        cfg
+        Self {
+            limit,
+            ..Default::default()
+        }
     }
 
     /// Change max size of payload. By default max size is 256Kb
@@ -280,14 +290,27 @@ impl PayloadConfig {
         }
         Ok(())
     }
+
+    /// Extract payload config from app data. Check both `T` and `Data<T>`, in that order, and fall
+    /// back to the default payload config.
+    fn from_req(req: &HttpRequest) -> &Self {
+        req.app_data::<Self>()
+            .or_else(|| req.app_data::<web::Data<Self>>().map(|d| d.as_ref()))
+            .unwrap_or(&DEFAULT_CONFIG)
+    }
 }
+
+// Allow shared refs to default.
+const DEFAULT_CONFIG: PayloadConfig = PayloadConfig {
+    limit: DEFAULT_CONFIG_LIMIT,
+    mimetype: None,
+};
+
+const DEFAULT_CONFIG_LIMIT: usize = 262_144; // 2^18 bytes (~256kB)
 
 impl Default for PayloadConfig {
     fn default() -> Self {
-        PayloadConfig {
-            limit: 262_144,
-            mimetype: None,
-        }
+        DEFAULT_CONFIG.clone()
     }
 }
 
@@ -302,98 +325,83 @@ pub struct HttpMessageBody {
     limit: usize,
     length: Option<usize>,
     #[cfg(feature = "compress")]
-    stream: Option<dev::Decompress<dev::Payload>>,
+    stream: dev::Decompress<dev::Payload>,
     #[cfg(not(feature = "compress"))]
-    stream: Option<dev::Payload>,
+    stream: dev::Payload,
+    buf: BytesMut,
     err: Option<PayloadError>,
-    fut: Option<LocalBoxFuture<'static, Result<Bytes, PayloadError>>>,
 }
 
 impl HttpMessageBody {
     /// Create `MessageBody` for request.
+    #[allow(clippy::borrow_interior_mutable_const)]
     pub fn new(req: &HttpRequest, payload: &mut dev::Payload) -> HttpMessageBody {
-        let mut len = None;
+        let mut length = None;
+        let mut err = None;
+
         if let Some(l) = req.headers().get(&header::CONTENT_LENGTH) {
-            if let Ok(s) = l.to_str() {
-                if let Ok(l) = s.parse::<usize>() {
-                    len = Some(l)
-                } else {
-                    return Self::err(PayloadError::UnknownLength);
-                }
-            } else {
-                return Self::err(PayloadError::UnknownLength);
+            match l.to_str() {
+                Ok(s) => match s.parse::<usize>() {
+                    Ok(l) if l > DEFAULT_CONFIG_LIMIT => {
+                        err = Some(PayloadError::Overflow)
+                    }
+                    Ok(l) => length = Some(l),
+                    Err(_) => err = Some(PayloadError::UnknownLength),
+                },
+                Err(_) => err = Some(PayloadError::UnknownLength),
             }
         }
 
         #[cfg(feature = "compress")]
-        let stream = Some(dev::Decompress::from_headers(payload.take(), req.headers()));
+        let stream = dev::Decompress::from_headers(payload.take(), req.headers());
         #[cfg(not(feature = "compress"))]
-        let stream = Some(payload.take());
+        let stream = payload.take();
 
         HttpMessageBody {
             stream,
-            limit: 262_144,
-            length: len,
-            fut: None,
-            err: None,
+            limit: DEFAULT_CONFIG_LIMIT,
+            length,
+            buf: BytesMut::with_capacity(8192),
+            err,
         }
     }
 
     /// Change max size of payload. By default max size is 256Kb
     pub fn limit(mut self, limit: usize) -> Self {
+        if let Some(l) = self.length {
+            if l > limit {
+                self.err = Some(PayloadError::Overflow);
+            }
+        }
         self.limit = limit;
         self
-    }
-
-    fn err(e: PayloadError) -> Self {
-        HttpMessageBody {
-            stream: None,
-            limit: 262_144,
-            fut: None,
-            err: Some(e),
-            length: None,
-        }
     }
 }
 
 impl Future for HttpMessageBody {
     type Output = Result<Bytes, PayloadError>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Some(ref mut fut) = self.fut {
-            return Pin::new(fut).poll(cx);
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        if let Some(e) = this.err.take() {
+            return Poll::Ready(Err(e));
         }
 
-        if let Some(err) = self.err.take() {
-            return Poll::Ready(Err(err));
-        }
-
-        if let Some(len) = self.length.take() {
-            if len > self.limit {
-                return Poll::Ready(Err(PayloadError::Overflow));
-            }
-        }
-
-        // future
-        let limit = self.limit;
-        let mut stream = self.stream.take().unwrap();
-        self.fut = Some(
-            async move {
-                let mut body = BytesMut::with_capacity(8192);
-
-                while let Some(item) = stream.next().await {
-                    let chunk = item?;
-                    if body.len() + chunk.len() > limit {
-                        return Err(PayloadError::Overflow);
+        loop {
+            let res = ready!(Pin::new(&mut this.stream).poll_next(cx));
+            match res {
+                Some(chunk) => {
+                    let chunk = chunk?;
+                    if this.buf.len() + chunk.len() > this.limit {
+                        return Poll::Ready(Err(PayloadError::Overflow));
                     } else {
-                        body.extend_from_slice(&chunk);
+                        this.buf.extend_from_slice(&chunk);
                     }
                 }
-                Ok(body.freeze())
+                None => return Poll::Ready(Ok(this.buf.split().freeze())),
             }
-            .boxed_local(),
-        );
-        self.poll(cx)
+        }
     }
 }
 
@@ -402,8 +410,9 @@ mod tests {
     use bytes::Bytes;
 
     use super::*;
-    use crate::http::header;
-    use crate::test::TestRequest;
+    use crate::http::{header, StatusCode};
+    use crate::test::{call_service, init_service, TestRequest};
+    use crate::{web, App, Responder};
 
     #[actix_rt::test]
     async fn test_payload_config() {
@@ -421,6 +430,86 @@ mod tests {
         let req = TestRequest::with_header(header::CONTENT_TYPE, "application/json")
             .to_http_request();
         assert!(cfg.check_mimetype(&req).is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_config_recall_locations() {
+        async fn bytes_handler(_: Bytes) -> impl Responder {
+            "payload is probably json bytes"
+        }
+
+        async fn string_handler(_: String) -> impl Responder {
+            "payload is probably json string"
+        }
+
+        let mut srv = init_service(
+            App::new()
+                .service(
+                    web::resource("/bytes-app-data")
+                        .app_data(
+                            PayloadConfig::default().mimetype(mime::APPLICATION_JSON),
+                        )
+                        .route(web::get().to(bytes_handler)),
+                )
+                .service(
+                    web::resource("/bytes-data")
+                        .data(PayloadConfig::default().mimetype(mime::APPLICATION_JSON))
+                        .route(web::get().to(bytes_handler)),
+                )
+                .service(
+                    web::resource("/string-app-data")
+                        .app_data(
+                            PayloadConfig::default().mimetype(mime::APPLICATION_JSON),
+                        )
+                        .route(web::get().to(string_handler)),
+                )
+                .service(
+                    web::resource("/string-data")
+                        .data(PayloadConfig::default().mimetype(mime::APPLICATION_JSON))
+                        .route(web::get().to(string_handler)),
+                ),
+        )
+        .await;
+
+        let req = TestRequest::with_uri("/bytes-app-data").to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let req = TestRequest::with_uri("/bytes-data").to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let req = TestRequest::with_uri("/string-app-data").to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let req = TestRequest::with_uri("/string-data").to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let req = TestRequest::with_uri("/bytes-app-data")
+            .header(header::CONTENT_TYPE, mime::APPLICATION_JSON)
+            .to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = TestRequest::with_uri("/bytes-data")
+            .header(header::CONTENT_TYPE, mime::APPLICATION_JSON)
+            .to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = TestRequest::with_uri("/string-app-data")
+            .header(header::CONTENT_TYPE, mime::APPLICATION_JSON)
+            .to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = TestRequest::with_uri("/string-data")
+            .header(header::CONTENT_TYPE, mime::APPLICATION_JSON)
+            .to_request();
+        let resp = call_service(&mut srv, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
     #[actix_rt::test]

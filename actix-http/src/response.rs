@@ -472,7 +472,9 @@ impl ResponseBuilder {
 
     /// Disable chunked transfer encoding for HTTP/1.1 streaming responses.
     #[inline]
-    pub fn no_chunking(&mut self) -> &mut Self {
+    pub fn no_chunking(&mut self, len: u64) -> &mut Self {
+        self.header(header::CONTENT_LENGTH, len);
+
         if let Some(parts) = parts(&mut self.head, &self.err) {
             parts.no_chunking(true);
         }
@@ -495,12 +497,6 @@ impl ResponseBuilder {
             };
         }
         self
-    }
-
-    /// Set content length
-    #[inline]
-    pub fn content_length(&mut self, len: u64) -> &mut Self {
-        self.header(header::CONTENT_LENGTH, len)
     }
 
     /// Set a cookie
@@ -558,8 +554,9 @@ impl ResponseBuilder {
         self
     }
 
-    /// This method calls provided closure with builder reference if value is
-    /// true.
+    /// This method calls provided closure with builder reference if value is `true`.
+    #[doc(hidden)]
+    #[deprecated = "Use an if statement."]
     pub fn if_true<F>(&mut self, value: bool, f: F) -> &mut Self
     where
         F: FnOnce(&mut ResponseBuilder),
@@ -570,8 +567,9 @@ impl ResponseBuilder {
         self
     }
 
-    /// This method calls provided closure with builder reference if value is
-    /// Some.
+    /// This method calls provided closure with builder reference if value is `Some`.
+    #[doc(hidden)]
+    #[deprecated = "Use an if-let construction."]
     pub fn if_some<T, F>(&mut self, value: Option<T>, f: F) -> &mut Self
     where
         F: FnOnce(T, &mut ResponseBuilder),
@@ -881,7 +879,7 @@ mod tests {
                     .domain("www.rust-lang.org")
                     .path("/test")
                     .http_only(true)
-                    .max_age_time(time::Duration::days(1))
+                    .max_age(time::Duration::days(1))
                     .finish(),
             )
             .del_cookie(&cookies[1])

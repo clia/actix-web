@@ -10,11 +10,11 @@ use actix_service::boxed::{self, BoxServiceFactory};
 use actix_service::{
     apply, apply_fn_factory, IntoServiceFactory, ServiceFactory, Transform,
 };
-use futures::future::{FutureExt, LocalBoxFuture};
+use futures_util::future::FutureExt;
 
 use crate::app_service::{AppEntry, AppInit, AppRoutingFactory};
 use crate::config::ServiceConfig;
-use crate::data::{Data, DataFactory};
+use crate::data::{Data, DataFactory, FnDataFactory};
 use crate::dev::ResourceDef;
 use crate::error::Error;
 use crate::resource::Resource;
@@ -25,8 +25,6 @@ use crate::service::{
 };
 
 type HttpNewService = BoxServiceFactory<(), ServiceRequest, ServiceResponse, Error, ()>;
-type FnDataFactory =
-    Box<dyn Fn() -> LocalBoxFuture<'static, Result<Box<dyn DataFactory>, ()>>>;
 
 /// Application builder - structure that follows the builder pattern
 /// for building application instances.
@@ -44,6 +42,7 @@ pub struct App<T, B> {
 
 impl App<AppEntry, Body> {
     /// Create application builder. Application can be configured with a builder-like pattern.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let fref = Rc::new(RefCell::new(None));
         App {
@@ -184,6 +183,7 @@ where
         self.data.extend(cfg.data);
         self.services.extend(cfg.services);
         self.external.extend(cfg.external);
+        self.extensions.extend(cfg.extensions);
         self
     }
 
@@ -320,7 +320,7 @@ where
 
     /// Registers middleware, in the form of a middleware component (type),
     /// that runs during inbound and/or outbound processing in the request
-    /// lifecycle (request -> response), modifying request/response as
+    /// life-cycle (request -> response), modifying request/response as
     /// necessary, across all requests managed by the *Application*.
     ///
     /// Use middleware when you need to read or modify *every* request or
@@ -385,7 +385,7 @@ where
     }
 
     /// Registers middleware, in the form of a closure, that runs during inbound
-    /// and/or outbound processing in the request lifecycle (request -> response),
+    /// and/or outbound processing in the request life-cycle (request -> response),
     /// modifying request/response as necessary, across all requests managed by
     /// the *Application*.
     ///
@@ -460,8 +460,8 @@ where
 {
     fn into_factory(self) -> AppInit<T, B> {
         AppInit {
-            data: Rc::new(self.data),
-            data_factories: Rc::new(self.data_factories),
+            data: self.data.into_boxed_slice().into(),
+            data_factories: self.data_factories.into_boxed_slice().into(),
             endpoint: self.endpoint,
             services: Rc::new(RefCell::new(self.services)),
             external: RefCell::new(self.external),
@@ -476,19 +476,21 @@ where
 mod tests {
     use actix_service::Service;
     use bytes::Bytes;
-    use futures::future::ok;
+    use futures_util::future::{err, ok};
 
     use super::*;
     use crate::http::{header, HeaderValue, Method, StatusCode};
     use crate::middleware::DefaultHeaders;
     use crate::service::ServiceRequest;
-    use crate::test::{call_service, init_service, read_body, TestRequest};
+    use crate::test::{
+        call_service, init_service, read_body, try_init_service, TestRequest,
+    };
     use crate::{web, HttpRequest, HttpResponse};
 
     #[actix_rt::test]
     async fn test_default_resource() {
         let mut srv = init_service(
-            App::new().service(web::resource("/test").to(|| HttpResponse::Ok())),
+            App::new().service(web::resource("/test").to(HttpResponse::Ok)),
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
@@ -501,13 +503,13 @@ mod tests {
 
         let mut srv = init_service(
             App::new()
-                .service(web::resource("/test").to(|| HttpResponse::Ok()))
+                .service(web::resource("/test").to(HttpResponse::Ok))
                 .service(
                     web::resource("/test2")
                         .default_service(|r: ServiceRequest| {
                             ok(r.into_response(HttpResponse::Created()))
                         })
-                        .route(web::get().to(|| HttpResponse::Ok())),
+                        .route(web::get().to(HttpResponse::Ok)),
                 )
                 .default_service(|r: ServiceRequest| {
                     ok(r.into_response(HttpResponse::MethodNotAllowed()))
@@ -552,6 +554,17 @@ mod tests {
     }
 
     #[actix_rt::test]
+    async fn test_data_factory_errors() {
+        let srv =
+            try_init_service(App::new().data_factory(|| err::<u32, _>(())).service(
+                web::resource("/").to(|_: web::Data<usize>| HttpResponse::Ok()),
+            ))
+            .await;
+
+        assert!(srv.is_err());
+    }
+
+    #[actix_rt::test]
     async fn test_extension() {
         let mut srv = init_service(App::new().app_data(10usize).service(
             web::resource("/").to(|req: HttpRequest| {
@@ -573,7 +586,7 @@ mod tests {
                     DefaultHeaders::new()
                         .header(header::CONTENT_TYPE, HeaderValue::from_static("0001")),
                 )
-                .route("/test", web::get().to(|| HttpResponse::Ok())),
+                .route("/test", web::get().to(HttpResponse::Ok)),
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
@@ -589,7 +602,7 @@ mod tests {
     async fn test_router_wrap() {
         let mut srv = init_service(
             App::new()
-                .route("/test", web::get().to(|| HttpResponse::Ok()))
+                .route("/test", web::get().to(HttpResponse::Ok))
                 .wrap(
                     DefaultHeaders::new()
                         .header(header::CONTENT_TYPE, HeaderValue::from_static("0001")),
@@ -620,7 +633,7 @@ mod tests {
                         Ok(res)
                     }
                 })
-                .service(web::resource("/test").to(|| HttpResponse::Ok())),
+                .service(web::resource("/test").to(HttpResponse::Ok)),
         )
         .await;
         let req = TestRequest::with_uri("/test").to_request();
@@ -636,7 +649,7 @@ mod tests {
     async fn test_router_wrap_fn() {
         let mut srv = init_service(
             App::new()
-                .route("/test", web::get().to(|| HttpResponse::Ok()))
+                .route("/test", web::get().to(HttpResponse::Ok))
                 .wrap_fn(|req, srv| {
                     let fut = srv.call(req);
                     async {
@@ -667,10 +680,9 @@ mod tests {
                 .route(
                     "/test",
                     web::get().to(|req: HttpRequest| {
-                        HttpResponse::Ok().body(format!(
-                            "{}",
-                            req.url_for("youtube", &["12345"]).unwrap()
-                        ))
+                        HttpResponse::Ok().body(
+                            req.url_for("youtube", &["12345"]).unwrap().to_string(),
+                        )
                     }),
                 ),
         )
